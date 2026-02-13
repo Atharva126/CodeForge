@@ -8,12 +8,11 @@ console.log('URL defined:', !!supabaseUrl);
 console.log('Key defined:', !!supabaseAnonKey);
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  const errorMsg = `Supabase initialization failed: 
-    ${!supabaseUrl ? 'Missing VITE_SUPABASE_URL. ' : ''}
-    ${!supabaseAnonKey ? 'Missing VITE_SUPABASE_ANON_KEY. ' : ''}
-    Please ensure these are set in your Vercel Environment Variables and redeploy.`;
+  const errorMsg = `CODEFORGE_CRITICAL_ERROR: Supabase variables are not being detected by the client. 
+    URL_STATUS: ${supabaseUrl ? 'DETECTED' : 'MISSING'}
+    KEY_STATUS: ${supabaseAnonKey ? 'DETECTED' : 'MISSING'}
+    This is happening on the Vercel build. Please check your Environment Variables tab again.`;
   console.error(errorMsg);
-  // We throw a more descriptive error
   throw new Error(errorMsg);
 }
 
