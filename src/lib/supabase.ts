@@ -1,17 +1,14 @@
 import { createClient } from '@supabase/supabase-js';
+import { ENV_CONFIG } from '../env_config';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || (typeof process !== 'undefined' ? process.env.VITE_SUPABASE_URL : undefined);
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || (typeof process !== 'undefined' ? process.env.VITE_SUPABASE_ANON_KEY : undefined);
-
-console.log('--- Supabase Diagnostic ---');
-console.log('URL defined:', !!supabaseUrl);
-console.log('Key defined:', !!supabaseAnonKey);
+const supabaseUrl = ENV_CONFIG.VITE_SUPABASE_URL || import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = ENV_CONFIG.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  const errorMsg = `CODEFORGE_CRITICAL_ERROR: Supabase variables are not being detected by the client. 
-    URL_STATUS: ${supabaseUrl ? 'DETECTED' : 'MISSING'}
-    KEY_STATUS: ${supabaseAnonKey ? 'DETECTED' : 'MISSING'}
-    This is happening on the Vercel build. Please check your Environment Variables tab again.`;
+  const errorMsg = `CodeForge Critical Error: Missing Supabase keys.
+    Build-time injection: ${!!ENV_CONFIG.VITE_SUPABASE_URL ? 'SUCCESS' : 'FAILED'}
+    Runtime check: ${!!import.meta.env.VITE_SUPABASE_URL ? 'SUCCESS' : 'FAILED'}
+  `;
   console.error(errorMsg);
   throw new Error(errorMsg);
 }

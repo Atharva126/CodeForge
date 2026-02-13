@@ -1,0 +1,5 @@
+export const ENV_CONFIG = {
+    VITE_SUPABASE_URL: "",
+    VITE_SUPABASE_ANON_KEY: "",
+    VITE_GEMINI_API_KEY: ""
+};
