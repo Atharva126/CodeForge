@@ -1,0 +1,11 @@
+<svg width="300" height="200" xmlns="http://www.w3.org/2000/svg">
+  <rect width="300" height="200" fill="#a855f7"/>
+  <circle cx="150" cy="100" r="70" fill="#9333ea"/>
+  <circle cx="150" cy="100" r="50" fill="#7c3aed"/>
+  <circle cx="150" cy="100" r="30" fill="#6d28d9"/>
+  <path d="M130 90 Q150 70 170 90 Q150 110 130 90" fill="white"/>
+  <circle cx="135" cy="85" r="3" fill="#6d28d9"/>
+  <circle cx="165" cy="85" r="3" fill="#6d28d9"/>
+  <path d="M135 95 Q150 105 165 95" stroke="#6d28d9" stroke-width="2" fill="none"/>
+  <text x="150" y="180" text-anchor="middle" fill="white" font-size="14" font-weight="bold">AI Assistant</text>
+</svg>

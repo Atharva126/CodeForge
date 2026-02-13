@@ -1,0 +1,24 @@
+<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Outer ring -->
+  <circle cx="12" cy="12" r="11" fill="#FFB800" stroke="#FF9500" stroke-width="1.5"/>
+  
+  <!-- Inner circle -->
+  <circle cx="12" cy="12" r="9" fill="#FFC800" stroke="#FFA000" stroke-width="1"/>
+  
+  <!-- F letter -->
+  <text x="12" y="16" text-anchor="middle" fill="#FFF" font-size="10" font-weight="bold" font-family="Arial, sans-serif">F</text>
+  
+  <!-- Highlight dots -->
+  <circle cx="9" cy="10" r="1" fill="#FFD700" opacity="0.8"/>
+  <circle cx="15" cy="10" r="1" fill="#FFD700" opacity="0.8"/>
+  <circle cx="12" cy="13" r="0.5" fill="#FFD700" opacity="0.6"/>
+  
+  <!-- Gradient overlay -->
+  <defs>
+    <radialGradient id="coinGradient">
+      <stop offset="0%" stop-color="#FFD700" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#FF8C00" stop-opacity="0.1"/>
+    </radialGradient>
+  </defs>
+  <circle cx="12" cy="12" r="8" fill="url(#coinGradient)" pointer-events="none"/>
+</svg>

@@ -1,0 +1,98 @@
+<svg width="400" height="250" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="competitiveGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#fa709a;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#fee140;stop-opacity:1" />
+    </linearGradient>
+    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="3"/>
+      <feOffset dx="0" dy="2" result="offsetblur"/>
+      <feComponentTransfer>
+        <feFuncA type="linear" slope="0.2"/>
+      </feComponentTransfer>
+      <feMerge> 
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/> 
+      </feMerge>
+    </filter>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="400" height="250" fill="url(#competitiveGradient)" rx="12"/>
+  
+  <!-- Competition Arena -->
+  <g transform="translate(50, 40)">
+    <!-- Leaderboard -->
+    <rect x="10" y="10" width="120" height="60" fill="white" opacity="0.2" rx="3"/>
+    <text x="15" y="25" fill="white" font-size="8" font-weight="bold" opacity="0.9">Rank</text>
+    <text x="15" y="35" fill="white" font-size="7" opacity="0.8">1. CodeMaster</text>
+    <text x="15" y="43" fill="white" font-size="7" opacity="0.8">2. AlgoPro</text>
+    <text x="15" y="51" fill="white" font-size="7" opacity="0.8">3. DSAKing</text>
+    <text x="15" y="59" fill="white" font-size="7" opacity="0.8">4. You</text>
+    
+    <!-- Trophy -->
+    <g transform="translate(140, 20)">
+      <polygon points="15,0 20,10 25,0 22,8 18,8" fill="gold" opacity="0.9"/>
+      <rect x="17" y="8" width="6" height="15" fill="gold" opacity="0.8"/>
+      <rect x="13" y="23" width="14" height="4" fill="gold" opacity="0.7"/>
+      <text x="15" y="35" text-anchor="middle" fill="white" font-size="6" font-weight="bold">WIN</text>
+    </g>
+    
+    <!-- Code Editor -->
+    <rect x="10" y="80" width="140" height="50" fill="white" opacity="0.1" rx="2"/>
+    <text x="15" y="90" fill="white" font-size="5" font-family="monospace" opacity="0.9">// Competitive Solution</text>
+    <text x="15" y="97" fill="white" font-size="5" font-family="monospace" opacity="0.9">int fastSolve() {</text>
+    <text x="15" y="104" fill="white" font-size="5" font-family="monospace" opacity="0.9">  optimize();</text>
+    <text x="15" y="111" fill="white" font-size="5" font-family="monospace" opacity="0.9">  return answer;</text>
+    <text x="15" y="118" fill="white" font-size="5" font-family="monospace" opacity="0.9">}</text>
+    
+    <!-- Timer -->
+    <circle cx="170" cy="30" r="15" fill="none" stroke="white" stroke-width="2" opacity="0.7"/>
+    <text x="170" y="35" text-anchor="middle" fill="white" font-size="10" font-weight="bold" opacity="0.9">2:45</text>
+  </g>
+  
+  <!-- Algorithm Concepts -->
+  <g transform="translate(250, 120)">
+    <!-- Binary representation -->
+    <g transform="translate(0, 0)">
+      <rect x="0" y="0" width="8" height="8" fill="white" opacity="0.8" rx="1"/>
+      <rect x="10" y="0" width="8" height="8" fill="white" opacity="0.8" rx="1"/>
+      <rect x="20" y="0" width="8" height="8" fill="white" opacity="0.8" rx="1"/>
+      <rect x="30" y="0" width="8" height="8" fill="white" opacity="0.8" rx="1"/>
+      <text x="4" y="6" text-anchor="middle" fill="#fa709a" font-size="6" font-weight="bold">1</text>
+      <text x="14" y="6" text-anchor="middle" fill="#fa709a" font-size="6" font-weight="bold">0</text>
+      <text x="24" y="6" text-anchor="middle" fill="#fa709a" font-size="6" font-weight="bold">1</text>
+      <text x="34" y="6" text-anchor="middle" fill="#fa709a" font-size="6" font-weight="bold">1</text>
+    </g>
+    
+    <!-- Graph node -->
+    <circle cx="60" cy="20" r="6" fill="white" opacity="0.8"/>
+    <circle cx="45" cy="35" r="6" fill="white" opacity="0.8"/>
+    <circle cx="75" cy="35" r="6" fill="white" opacity="0.8"/>
+    <circle cx="60" cy="50" r="6" fill="white" opacity="0.8"/>
+    <line x1="60" y1="20" x2="45" y2="35" stroke="white" stroke-width="1" opacity="0.6"/>
+    <line x1="60" y1="20" x2="75" y2="35" stroke="white" stroke-width="1" opacity="0.6"/>
+    <line x1="60" y1="20" x2="60" y2="50" stroke="white" stroke-width="1" opacity="0.6"/>
+    
+    <!-- Complexity notation -->
+    <text x="20" y="70" fill="white" font-size="8" font-weight="bold" opacity="0.9">O(log n)</text>
+    <text x="60" y="70" fill="white" font-size="8" font-weight="bold" opacity="0.9">O(n²)</text>
+  </g>
+  
+  <!-- Success indicators -->
+  <g transform="translate(50, 150)">
+    <!-- Progress bars -->
+    <rect x="0" y="0" width="60" height="8" fill="white" opacity="0.3" rx="4"/>
+    <rect x="0" y="0" width="45" height="8" fill="white" opacity="0.8" rx="4"/>
+    
+    <rect x="0" y="12" width="60" height="8" fill="white" opacity="0.3" rx="4"/>
+    <rect x="0" y="12" width="50" height="8" fill="white" opacity="0.8" rx="4"/>
+    
+    <rect x="0" y="24" width="60" height="8" fill="white" opacity="0.3" rx="4"/>
+    <rect x="0" y="24" width="55" height="8" fill="white" opacity="0.8" rx="4"/>
+  </g>
+  
+  <!-- Title -->
+  <text x="200" y="220" text-anchor="middle" fill="white" font-size="24" font-weight="bold" font-family="Arial, sans-serif" filter="url(#shadow)">Competitive Prog</text>
+  <text x="200" y="240" text-anchor="middle" fill="white" font-size="14" font-family="Arial, sans-serif" opacity="0.9">Master Coding Competitions</text>
+</svg>

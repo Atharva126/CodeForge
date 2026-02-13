@@ -1,0 +1,16 @@
+<svg width="300" height="200" xmlns="http://www.w3.org/2000/svg">
+  <rect width="300" height="200" fill="#6d48b9"/>
+  <circle cx="60" cy="60" r="15" fill="#8b5cf6"/>
+  <circle cx="150" cy="40" r="15" fill="#8b5cf6"/>
+  <circle cx="240" cy="60" r="15" fill="#8b5cf6"/>
+  <circle cx="90" cy="120" r="15" fill="#8b5cf6"/>
+  <circle cx="210" cy="120" r="15" fill="#8b5cf6"/>
+  <circle cx="150" cy="160" r="15" fill="#8b5cf6"/>
+  <line x1="60" y1="60" x2="150" y2="40" stroke="#a78bfa" stroke-width="3"/>
+  <line x1="150" y1="40" x2="240" y2="60" stroke="#a78bfa" stroke-width="3"/>
+  <line x1="60" y1="60" x2="90" y2="120" stroke="#a78bfa" stroke-width="3"/>
+  <line x1="240" y1="60" x2="210" y2="120" stroke="#a78bfa" stroke-width="3"/>
+  <line x1="90" y1="120" x2="150" y2="160" stroke="#a78bfa" stroke-width="3"/>
+  <line x1="210" y1="120" x2="150" y2="160" stroke="#a78bfa" stroke-width="3"/>
+  <text x="150" y="190" text-anchor="middle" fill="white" font-size="12" font-weight="bold">Algorithm Graph</text>
+</svg>
