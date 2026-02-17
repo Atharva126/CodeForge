@@ -1,5 +1,4 @@
 import { useEffect, useRef } from 'react';
-import { motion } from 'framer-motion';
 
 interface AIVoiceVisualizerProps {
     isListening: boolean;
@@ -46,13 +45,20 @@ export default function AIVoiceVisualizer({ isListening }: AIVoiceVisualizerProp
         if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
             audioContextRef.current.close().catch(console.error);
         }
+        // Explicitly stop all tracks to release hardware
+        if (analyserRef.current && analyserRef.current.context.state !== 'closed') {
+            const stream = (analyserRef.current.context as any)._stream;
+            if (stream) {
+                stream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
+            }
+        }
     };
 
     const draw = () => {
         if (!canvasRef.current || !analyserRef.current || !dataArrayRef.current) return;
 
         animationFrameRef.current = requestAnimationFrame(draw);
-        analyserRef.current.getByteFrequencyData(dataArrayRef.current);
+        analyserRef.current.getByteFrequencyData(dataArrayRef.current as any);
 
         const canvas = canvasRef.current;
         const ctx = canvas.getContext('2d');

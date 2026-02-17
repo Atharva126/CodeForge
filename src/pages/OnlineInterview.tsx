@@ -318,6 +318,14 @@ export default function OnlineInterview() {
             }
 
             try {
+                // HARDWARE RELEASE: Always stop existing tracks before requesting new ones
+                if (localStreamRef.current) {
+                    console.log("🎬 Media: Releasing existing tracks...");
+                    localStreamRef.current.getTracks().forEach(t => t.stop());
+                    localStreamRef.current = null;
+                    setLocalStream(null);
+                }
+
                 if (!localStreamRef.current) {
                     console.log("🎬 Media: Requesting camera access...");
                     const stream = await navigator.mediaDevices.getUserMedia({
@@ -344,8 +352,13 @@ export default function OnlineInterview() {
                 }
             } catch (err: any) {
                 console.error("Media error:", err);
-                if (retries > 0 && err.name === 'NotReadableError') {
-                    setTimeout(() => initMedia(retries - 1), 1000);
+                if (err.name === 'NotReadableError') {
+                    if (retries > 0) {
+                        addTerminalMessage({ type: 'system', message: `⚠️ Camera Busy: Retrying in 2s... (${retries} left)` });
+                        setTimeout(() => initMedia(retries - 1), 2000);
+                    } else {
+                        addTerminalMessage({ type: 'system', message: '❌ Camera Failure: Device is in use by another application. Please close other tabs/apps and click "Reset Cam".' });
+                    }
                 } else {
                     addTerminalMessage({ type: 'system', message: `❌ Media Error: ${err.message}` });
                 }
