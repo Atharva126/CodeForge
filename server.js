@@ -38,12 +38,14 @@ io.on("connection", (socket) => {
 
     participants.add(socket.id);
 
-    // Assign role: First person is interviewer, second is candidate
-    let role = 'candidate';
-    if (participants.size === 1) {
-      role = 'interviewer';
+    // Assign role: Persistent based on userName within the room
+    let role = roles.get(userName);
+    if (!role) {
+      // If no role assigned yet for this user
+      const interviewerExists = Array.from(roles.values()).includes('interviewer');
+      role = interviewerExists ? 'candidate' : 'interviewer';
+      roles.set(userName, role);
     }
-    roles.set(socket.id, role);
 
     // Broadcast updated participant list and specific role back to the joiner
     const participantsList = Array.from(participants);
@@ -89,9 +91,6 @@ io.on("connection", (socket) => {
     for (const [roomId, participants] of roomParticipants.entries()) {
       if (participants.has(socket.id)) {
         participants.delete(socket.id);
-
-        const roles = roomRoles.get(roomId);
-        if (roles) roles.delete(socket.id);
 
         // Broadcast updated list immediately
         io.to(roomId).emit("room-participants", {

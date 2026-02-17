@@ -25,8 +25,8 @@ import {
 import { io } from 'socket.io-client';
 import * as Y from 'yjs';
 import { SocketIOProvider } from 'y-socket.io';
-import { Tldraw, createTLStore, defaultShapeUtils } from 'tldraw';
-import 'tldraw/tldraw.css';
+import { Excalidraw } from '@excalidraw/excalidraw';
+import debounce from 'lodash.debounce';
 import CollaborativeEditor from '../components/workspace/CollaborativeEditor';
 import { useAuth } from '../contexts/AuthContext';
 import { problemsData } from '../data/problemsData';
@@ -112,14 +112,17 @@ export default function OnlineInterview() {
         };
 
         const createPC = () => {
-            // Guard: Don't create if already connected or connecting
-            const existingPC = peerConnectionRef.current;
-            if (existingPC && (existingPC.connectionState === 'connected' || existingPC.connectionState === 'connecting')) {
-                console.log('🎬 Media: PC already exists and is active, skipping creation.');
-                return existingPC;
+            const pcState = peerConnectionRef.current?.connectionState;
+            const sigState = peerConnectionRef.current?.signalingState;
+
+            // Guard: Don't recreate if already in a useful state
+            if (peerConnectionRef.current &&
+                (pcState === 'connected' || pcState === 'connecting' || sigState === 'have-local-offer' || sigState === 'have-remote-offer')) {
+                console.log('🎬 Media: PC already exists and is active/negotiating, skipping creation.');
+                return peerConnectionRef.current;
             }
 
-            if (existingPC) cleanupPC();
+            if (peerConnectionRef.current) cleanupPC();
 
             console.log('🎬 Media: Creating new Peer Connection');
             const pc = new RTCPeerConnection({
@@ -232,18 +235,12 @@ export default function OnlineInterview() {
         const handleRoomParticipants = async ({ participants }: any) => {
             const myId = socket.id;
             const others = participants.filter((p: string) => p !== myId);
-            const newPartnerId = others[0] || null;
+            partnerIdRef.current = others[0] || null;
 
-            const partnerJoined = !partnerIdRef.current && newPartnerId;
-            partnerIdRef.current = newPartnerId;
-
-            // Trigger: Interviewer initiates offer when partner joins
-            if (isInterviewerRef.current && partnerJoined) {
-                console.log('📡 Signaling: Partner joined, initiating offer as Interviewer...');
-                const pc = createPC();
-                const offer = await pc.createOffer();
-                await pc.setLocalDescription(offer);
-                socket.emit('offer', { roomId, offer });
+            // If partner joined and I am interviewer, ensures PC exists (onnegotiationneeded will handle the rest)
+            if (isInterviewerRef.current && partnerIdRef.current) {
+                console.log('📡 Signaling: Partner detected, ensuring PC...');
+                createPC();
             }
         };
 
@@ -253,13 +250,10 @@ export default function OnlineInterview() {
             setIsInterviewer(isCaller);
             isInterviewerRef.current = isCaller;
 
-            // Trigger: If assigned interviewer and partner already here, send offer
+            // If assigned interviewer and partner already here, ensuring PC
             if (isCaller && partnerIdRef.current) {
-                console.log('📡 Signaling: Assigned Interviewer and partner present, initiating offer...');
-                const pc = createPC();
-                const offer = await pc.createOffer();
-                await pc.setLocalDescription(offer);
-                socket.emit('offer', { roomId, offer });
+                console.log('📡 Signaling: Role assigned and partner present, ensuring PC...');
+                createPC();
             }
         };
 
@@ -291,7 +285,15 @@ export default function OnlineInterview() {
         }
 
         (window as any).reconnectCall = () => {
-            addTerminalMessage({ type: 'system', message: '🔄 Force re-connecting...' });
+            addTerminalMessage({ type: 'system', message: '🔄 Force re-connecting media...' });
+
+            // Stop existing local stream tracks to release hardware
+            if (localStreamRef.current) {
+                localStreamRef.current.getTracks().forEach(t => t.stop());
+                localStreamRef.current = null;
+                setLocalStream(null);
+            }
+
             cleanupPC();
             if (isCallActive) startFlow();
         };
@@ -304,7 +306,7 @@ export default function OnlineInterview() {
             socket.off('role-assigned', handleRoleAssigned);
             cleanupPC();
         };
-    }, [roomId, user, isCallActive]);
+    }, [roomId, user?.id, isCallActive]);
 
     // Separate Media Lifecycle: Keep camera alive once started
     useEffect(() => {
@@ -466,80 +468,53 @@ export default function OnlineInterview() {
     const yDocRef = useRef<Y.Doc>(new Y.Doc());
     const providerRef = useRef<SocketIOProvider | null>(null);
 
-    // Tldraw Store with Yjs Sync
-    const [store] = useState(() => {
-        const store = createTLStore({ shapeUtils: defaultShapeUtils });
-        return store;
-    });
-
+    const [excalidrawAPI, setExcalidrawAPI] = useState<any>(null);
     const isSyncingRef = useRef(false);
 
+    // Syncing logic for Excalidraw
     useEffect(() => {
-        if (!roomId || !store) return;
+        if (!roomId || !excalidrawAPI) return;
 
-        const yMap = yDocRef.current.getMap('tldraw');
+        const yArray = yDocRef.current.getArray('excalidraw-elements');
 
-        // Initial Load from Yjs to Tldraw
-        const syncInitialData = () => {
+        const handleYArrayChange = () => {
             if (isSyncingRef.current) return;
             isSyncingRef.current = true;
             try {
-                store.mergeRemoteChanges(() => {
-                    const records: any[] = [];
-                    yMap.forEach((record: any) => {
-                        records.push(record);
-                    });
-                    if (records.length > 0) {
-                        store.put(records);
-                    }
-                });
+                const elements = yArray.toArray() as any[];
+                if (elements.length > 0) {
+                    excalidrawAPI.updateScene({ elements });
+                }
             } finally {
                 isSyncingRef.current = false;
             }
         };
 
-        const unlisten = store.listen((entry) => {
-            if (entry.source !== 'user' || isSyncingRef.current) return;
-            // Push local changes to Yjs
-            yDocRef.current.transact(() => {
-                Object.entries(entry.changes.added).forEach(([id, record]) => yMap.set(id, record));
-                Object.entries(entry.changes.updated).forEach(([id, [_from, to]]) => yMap.set(id, to));
-                Object.keys(entry.changes.removed).forEach((id) => yMap.delete(id));
-            });
-        });
+        yArray.observe(handleYArrayChange);
 
-        const handleYMapChange = (event: Y.YMapEvent<any>) => {
-            if (event.transaction.local || isSyncingRef.current) return;
-            isSyncingRef.current = true;
-            try {
-                store.mergeRemoteChanges(() => {
-                    event.changes.keys.forEach((change, id) => {
-                        const record = yMap.get(id);
-                        if (change.action === 'add' || change.action === 'update') {
-                            if (record) store.put([record as any]);
-                        } else if (change.action === 'delete') {
-                            store.remove([id as any]);
-                        }
-                    });
-                });
-            } catch (err) {
-                console.error('🎨 Whiteboard: Sync error:', err);
-            } finally {
-                // Delay lifting the guard slightly to allow Tldraw to settle
-                setTimeout(() => { isSyncingRef.current = false; }, 50);
-            }
-        };
-
-        yMap.observe(handleYMapChange);
-
-        // Export sync function for provider to use
-        (window as any).syncWhiteboard = syncInitialData;
+        // Initial load
+        const elements = yArray.toArray();
+        if (elements.length > 0) {
+            excalidrawAPI.updateScene({ elements });
+        }
 
         return () => {
-            unlisten();
-            yMap.unobserve(handleYMapChange);
+            yArray.unobserve(handleYArrayChange);
         };
-    }, [roomId, store]);
+    }, [roomId, excalidrawAPI]);
+
+    const handleExcalidrawChange = debounce((elements: readonly any[]) => {
+        if (isSyncingRef.current || !roomId) return;
+
+        const yArray = yDocRef.current.getArray('excalidraw-elements');
+
+        yDocRef.current.transact(() => {
+            // Very simple sync logic: replace all elements
+            // In a production app with huge drawings, we would use a more granular diff
+            yArray.delete(0, yArray.length);
+            yArray.push(elements as any[]);
+        });
+    }, 150);
 
 
 
@@ -747,9 +722,18 @@ export default function OnlineInterview() {
                                         ) : (
                                             <div className="h-full min-h-0 bg-[#0d0d0d] relative flex flex-col overflow-hidden border border-white/5 rounded-2xl">
                                                 <div className="flex-1 relative h-full w-full min-h-[400px]">
-                                                    <Tldraw
-                                                        store={store}
-                                                        autoFocus
+                                                    <Excalidraw
+                                                        excalidrawAPI={(api: any) => setExcalidrawAPI(api)}
+                                                        onChange={handleExcalidrawChange}
+                                                        theme="dark"
+                                                        UIOptions={{
+                                                            canvasActions: {
+                                                                toggleTheme: false,
+                                                                export: false,
+                                                                loadScene: false,
+                                                                saveToActiveFile: false,
+                                                            }
+                                                        }}
                                                     />
                                                 </div>
                                             </div>
@@ -1041,6 +1025,7 @@ export default function OnlineInterview() {
                             initial={{ opacity: 0, scale: 0.9, y: 20 }}
                             animate={{ opacity: 1, scale: 1, y: 0 }}
                             exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                            onClick={(e) => e.stopPropagation()}
                             className="relative w-full max-w-2xl bg-gray-900 border border-white/10 rounded-[32px] overflow-hidden shadow-2xl flex flex-col max-h-[80vh]"
                         >
                             <div className="p-8 border-b border-white/5">
