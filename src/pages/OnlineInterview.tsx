@@ -180,6 +180,8 @@ export default function OnlineInterview() {
                 localStreamRef.current.getTracks().forEach((track: MediaStreamTrack) => {
                     pc.addTrack(track, localStreamRef.current!);
                 });
+                // Apply initial bitrate constraints based on current quality setting
+                applyBitrateConstraints(pc, videoQuality);
             }
 
             peerConnectionRef.current = pc;
@@ -425,8 +427,33 @@ export default function OnlineInterview() {
         }
     }, [remoteStream]);
 
-    const [videoQuality, setVideoQuality] = useState<'data-saver' | 'low' | 'medium' | 'high'>('medium');
+    const [videoQuality, setVideoQuality] = useState<'data-saver' | 'low' | 'medium' | 'high'>('low');
     const [isChangingQuality, setIsChangingQuality] = useState(false);
+
+    const applyBitrateConstraints = async (pc: RTCPeerConnection, quality: string) => {
+        const bitrates: Record<string, number> = {
+            'data-saver': 100000, // 100kbps
+            'low': 250000,        // 250kbps
+            'medium': 600000,     // 600kbps
+            'high': 1500000       // 1.5Mbps
+        };
+
+        const bitrate = bitrates[quality] || 250000;
+        const senders = pc.getSenders();
+        const videoSender = senders.find(s => s.track?.kind === 'video');
+
+        if (videoSender) {
+            try {
+                const params = videoSender.getParameters();
+                if (!params.encodings) params.encodings = [{}];
+                params.encodings[0].maxBitrate = bitrate;
+                await videoSender.setParameters(params);
+                console.log(`🎬 Media: Bitrate capped at ${bitrate / 1000}kbps for ${quality} mode`);
+            } catch (err) {
+                console.warn("🎬 Media: Failed to set bitrate parameters", err);
+            }
+        }
+    };
 
     const changeVideoQuality = async (quality: 'data-saver' | 'low' | 'medium' | 'high') => {
         if (!localStream || isChangingQuality) return;
@@ -450,10 +477,12 @@ export default function OnlineInterview() {
 
             // Replace track in PeerConnection
             if (peerConnectionRef.current) {
-                const senders = peerConnectionRef.current.getSenders();
+                const pc = peerConnectionRef.current;
+                const senders = pc.getSenders();
                 const videoSender = senders.find(s => s.track?.kind === 'video');
                 if (videoSender) {
                     await videoSender.replaceTrack(newVideoTrack);
+                    await applyBitrateConstraints(pc, quality);
                 }
             }
 
@@ -466,7 +495,7 @@ export default function OnlineInterview() {
                 videoRef.current.srcObject = consolidatedStream;
             }
 
-            addTerminalMessage({ type: 'system', message: `📹 Quality switched to: ${quality.toUpperCase()}` });
+            addTerminalMessage({ type: 'system', message: `📹 Quality switched to: ${quality.toUpperCase()} (${quality === 'data-saver' ? '100' : quality === 'low' ? '250' : quality === 'medium' ? '600' : '1500'}kbps)` });
 
         } catch (err) {
             console.error("Failed to switch quality", err);
