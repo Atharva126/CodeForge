@@ -36,9 +36,11 @@ import { ENV_CONFIG } from '../env_config';
 const getSocketURL = () => {
     if (ENV_CONFIG.VITE_COLLAB_SERVER_URL) return ENV_CONFIG.VITE_COLLAB_SERVER_URL;
     if (typeof window === 'undefined') return 'http://localhost:1234';
-    // If we're on localhost but no port specified, assume the separate server is on 1234
-    if (window.location.hostname === 'localhost') return 'http://localhost:1234';
-    // Fallback for production if VITE_COLLAB_SERVER_URL is missing but we're on a custom domain
+    // If on Vite dev server or localhost, point to the local collab server on port 1234
+    if (window.location.hostname === 'localhost' || window.location.port === '5173') {
+        return `http://${window.location.hostname}:1234`;
+    }
+    // Production fallback - should be handled by VITE_COLLAB_SERVER_URL mostly
     return `https://${window.location.hostname}`;
 };
 const socket = io(getSocketURL());

@@ -63,7 +63,10 @@ export default function CollaborativeEditor({
         const getSocketURL = () => {
             if (ENV_CONFIG.VITE_COLLAB_SERVER_URL) return ENV_CONFIG.VITE_COLLAB_SERVER_URL;
             if (typeof window === 'undefined') return 'http://localhost:1234';
-            return `http://${window.location.hostname}:1234`;
+            if (window.location.hostname === 'localhost' || window.location.port === '5173') {
+                return `http://${window.location.hostname}:1234`;
+            }
+            return `https://${window.location.hostname}`;
         };
         const serverUrl = getSocketURL();
         const doc = new Y.Doc();

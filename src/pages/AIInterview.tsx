@@ -175,9 +175,9 @@ export default function AIInterview() {
     useEffect(() => {
         const checkServer = async () => {
             if (activeEngine === 'Sarvam') {
-                // If on Vercel/Production, the proxy is at /api/sarvam
-                if (window.location.hostname !== 'localhost') {
-                    console.log('✅ Sarvam Engine Active (Vercel API Routes)');
+                // If on production (Vercel), we don't need a localhost health check
+                if (window.location.hostname !== 'localhost' && window.location.port !== '5173') {
+                    console.log('✅ Sarvam Engine Active (Production Mode)');
                     return;
                 }
 
