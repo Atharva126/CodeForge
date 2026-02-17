@@ -55,7 +55,6 @@ export default function OnlineInterview() {
     const { user } = useAuth();
 
     const [activeTab, setActiveTab] = useState<'problem' | 'whiteboard' | 'chat' | 'insights'>('problem');
-    const [isMediaDockMinimized, setIsMediaDockMinimized] = useState(false);
     const [currentProblem, setCurrentProblem] = useState<any>(problemsData[0]);
     const [terminalOutput, setTerminalOutput] = useState<any[]>([]);
 
@@ -69,6 +68,7 @@ export default function OnlineInterview() {
     const [isCallActive, setIsCallActive] = useState(true);
     const [isRunning, setIsRunning] = useState(false);
     const [isJitsiLoaded, setIsJitsiLoaded] = useState(!!(window as any).JitsiMeetExternalAPI);
+    const [participantCount, setParticipantCount] = useState(1);
 
     const terminalEndRef = useRef<HTMLDivElement>(null);
 
@@ -201,6 +201,10 @@ export default function OnlineInterview() {
             },
             participantJoined: (participant: any) => {
                 addTerminalMessage({ type: 'system', message: `👤 Participant joined: ${participant.displayName}` });
+                setParticipantCount(prev => prev + 1);
+            },
+            participantLeft: () => {
+                setParticipantCount(prev => Math.max(1, prev - 1));
             }
         });
 
@@ -519,14 +523,20 @@ export default function OnlineInterview() {
                         <Panel defaultSize={25} minSize={20} className="bg-black/10 backdrop-blur-md">
                             <div className="h-full flex flex-col p-6 space-y-6">
                                 <div className="flex items-center justify-between">
-                                    <span className="text-[10px] font-black uppercase tracking-widest text-gray-500 italic">Tactical_Intel</span>
+                                    <span className="text-[10px] font-black uppercase tracking-widest text-gray-500 italic">Grid Network</span>
                                     <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 text-[8px] font-black">
-                                        <div className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse" />CONNECTED
+                                        <div className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse" />{participantCount} ACTIVE
                                     </div>
                                 </div>
-                                <div className="relative aspect-video rounded-2xl bg-black/60 border border-white/5 flex items-center justify-center overflow-hidden">
-                                    <UsersIcon className="w-10 h-10 text-white opacity-5" />
-                                    <div className="absolute bottom-3 left-3 px-2 py-1 bg-black/40 backdrop-blur-md rounded-lg text-[8px] font-black text-white">{user?.email?.split('@')[0]} (YOU)</div>
+                                <div className="relative aspect-video rounded-2xl bg-black/60 border border-white/5 flex items-center justify-center overflow-hidden shadow-2xl ring-1 ring-white/5">
+                                    <div ref={jitsiContainerRef} className="absolute inset-0 z-10" />
+                                    <UsersIcon className="w-10 h-10 text-white opacity-5 absolute z-0" />
+                                    {!jitsiApi && (
+                                        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-0">
+                                            <div className="w-8 h-8 border-2 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin" />
+                                            <span className="text-[8px] font-black text-gray-600 uppercase tracking-widest">Initializing_Engine...</span>
+                                        </div>
+                                    )}
                                 </div>
                                 {isInterviewer && (
                                     <div className="mt-auto space-y-4">
@@ -540,22 +550,15 @@ export default function OnlineInterview() {
                 </div>
             </div>
 
-            {/* Floating Media Hub */}
+            {/* Floating Media Hub (Hidden for static docking) */}
             <AnimatePresence>
-                {isCallActive && !isMediaDockMinimized && (
+                {/* 
+                isCallActive && !isMediaDockMinimized && (
                     <motion.div drag dragMomentum={false} initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.8, opacity: 0 }} className="fixed bottom-32 right-8 w-80 z-50">
-                        <div className="bg-[#0f0f0f]/80 backdrop-blur-3xl border border-white/10 rounded-[2.5rem] shadow-2xl overflow-hidden ring-1 ring-white/10">
-                            <div className="h-10 px-6 flex items-center justify-between bg-white/5 cursor-move">
-                                <span className="text-[8px] font-black text-white uppercase tracking-widest">Live_Signal</span>
-                                <button onClick={() => setIsMediaDockMinimized(true)} className="text-[8px] font-black text-gray-500 hover:text-white">[Minimize]</button>
-                            </div>
-                            <div className="aspect-video bg-black/40 relative">
-                                <div ref={jitsiContainerRef} className="absolute inset-0" />
-                                {!jitsiApi && <div className="absolute inset-0 flex items-center justify-center"><VideoOff className="w-8 h-8 text-white/10" /></div>}
-                            </div>
-                        </div>
+                        ...
                     </motion.div>
-                )}
+                )
+                */}
             </AnimatePresence>
 
             {/* Bottom Control Dock */}
