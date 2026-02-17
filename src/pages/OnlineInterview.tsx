@@ -8,7 +8,6 @@ import {
     Video,
     VideoOff,
     Mic,
-    Users,
     Send,
     Terminal as TerminalIcon,
     LogOut,
@@ -20,9 +19,11 @@ import {
     Zap,
     Sparkles,
     CheckCircle2,
-    RefreshCw
+    RefreshCw,
+    Maximize2
 } from 'lucide-react';
 import { io } from 'socket.io-client';
+import DailyIframe, { DailyCall } from '@daily-co/daily-js';
 import * as Y from 'yjs';
 import { SocketIOProvider } from 'y-socket.io';
 import { Excalidraw } from '@excalidraw/excalidraw';
@@ -79,200 +80,86 @@ export default function OnlineInterview() {
             addTerminalMessage({ type: 'system', message: '📋 Invite link copied to clipboard!' });
         });
     };
-    const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-    const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
-    const videoRef = useRef<HTMLVideoElement>(null);
-    const remoteVideoRef = useRef<HTMLVideoElement>(null);
-    const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+    const [dailyCall, setDailyCall] = useState<DailyCall | null>(null);
+    const dailyContainerRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        if (!roomId || !user || !isCallActive || !dailyContainerRef.current || dailyCall) return;
+
+        console.log('🎬 Daily: Initializing call for room:', roomId);
+
+        // In a real app, you'd fetch a meeting token from your backend.
+        // For this demo/optimized version, we use a public room URL pattern.
+        // NOTE: Replace 'codeforge' with your actual Daily subdomain if available.
+        const ROOM_URL = `https://codeforge.daily.co/${roomId}`;
+
+        const call = DailyIframe.createFrame(dailyContainerRef.current, {
+            iframeStyle: {
+                width: '100%',
+                height: '100%',
+                border: '0',
+                borderRadius: '28px',
+            },
+            showLeaveButton: false,
+            showFullscreenButton: true,
+            userName: user.email || 'Anonymous'
+        });
+
+        call.join({ url: ROOM_URL }).catch(err => {
+            console.error('🎬 Daily: Join failed', err);
+            addTerminalMessage({ type: 'system', message: '❌ Call Error: Could not join the video room.' });
+        });
+
+        call.on('joined-meeting', () => {
+            addTerminalMessage({ type: 'system', message: '🤝 Connection: Global SFU Established!' });
+            setDailyCall(call);
+        });
+
+        call.on('error', (e) => {
+            console.error('🎬 Daily: Error', e);
+            addTerminalMessage({ type: 'system', message: `⚠️ Call Issue: ${e.errorMsg}` });
+        });
+
+        return () => {
+            console.log('🎬 Daily: Leaving and destroying call');
+            call.leave();
+            call.destroy();
+            setDailyCall(null);
+        };
+    }, [roomId, user, isCallActive]);
+
+    const toggleAudio = useCallback(() => {
+        if (dailyCall) {
+            const isAudioEnabled = dailyCall.localAudio();
+            dailyCall.setLocalAudio(!isAudioEnabled);
+            setIsMuted(isAudioEnabled);
+        }
+    }, [dailyCall]);
+
+    const toggleVideo = useCallback(() => {
+        if (dailyCall) {
+            const isVideoEnabled = dailyCall.localVideo();
+            dailyCall.setLocalVideo(!isVideoEnabled);
+            setIsVideoOff(isVideoEnabled);
+        }
+    }, [dailyCall]);
+
     const [isInterviewer, setIsInterviewer] = useState(false);
-    const [iceState, setIceState] = useState<string>('new');
-    const [tracksReceived, setTracksReceived] = useState<string[]>([]);
-    const partnerIdRef = useRef<string | null>(null);
-    const localStreamRef = useRef<MediaStream | null>(null);
-    const pendingCandidates = useRef<RTCIceCandidateInit[]>([]);
     const isInterviewerRef = useRef(false);
 
     useEffect(() => {
         if (!roomId || !user || !isCallActive) return;
-
-        const cleanupPC = () => {
-            if (peerConnectionRef.current) {
-                console.log('🎬 Media: Cleaning up PC');
-                const pc = peerConnectionRef.current;
-                pc.onicecandidate = null;
-                pc.ontrack = null;
-                pc.onconnectionstatechange = null;
-                pc.oniceconnectionstatechange = null;
-                pc.onicegatheringstatechange = null;
-                pc.close();
-                peerConnectionRef.current = null;
-                setIceState('new');
-                setTracksReceived([]);
-            }
-        };
-
-        const createPC = () => {
-            const pcState = peerConnectionRef.current?.connectionState;
-            const sigState = peerConnectionRef.current?.signalingState;
-
-            // Guard: Don't recreate if already in a useful state
-            if (peerConnectionRef.current &&
-                (pcState === 'connected' || pcState === 'connecting' || sigState === 'have-local-offer' || sigState === 'have-remote-offer')) {
-                console.log('🎬 Media: PC already exists and is active/negotiating, skipping creation.');
-                return peerConnectionRef.current;
-            }
-
-            if (peerConnectionRef.current) cleanupPC();
-
-            console.log('🎬 Media: Creating new Peer Connection');
-            const pc = new RTCPeerConnection({
-                iceServers: [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' },
-                    { urls: 'stun:stun2.l.google.com:19302' },
-                    { urls: 'stun:stun3.l.google.com:19302' },
-                    { urls: 'stun:stun4.l.google.com:19302' }
-                ]
-            });
-
-            pc.onicecandidate = (event) => {
-                if (event.candidate) {
-                    socket.emit('ice-candidate', { roomId, candidate: event.candidate });
-                }
-            };
-
-            pc.ontrack = (event) => {
-                console.log('🎬 Media: Remote track received:', event.track.kind);
-                setTracksReceived(prev => Array.from(new Set([...prev, event.track.kind])));
-                const stream = event.streams[0];
-                if (stream) setRemoteStream(stream);
-            };
-
-            pc.onnegotiationneeded = async () => {
-                try {
-                    if (isInterviewerRef.current && partnerIdRef.current) {
-                        console.log('📡 Signaling: Negotiation needed, sending offer...');
-                        const offer = await pc.createOffer();
-                        await pc.setLocalDescription(offer);
-                        socket.emit('offer', { roomId, offer });
-                    }
-                } catch (err) {
-                    console.error('Negotiation error:', err);
-                }
-            };
-
-            pc.onconnectionstatechange = () => {
-                console.log("🎬 Media: Connection State:", pc.connectionState);
-                if (pc.connectionState === 'connected') {
-                    addTerminalMessage({ type: 'system', message: '🤝 Connection: Established!' });
-                } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-                    if (isCallActive) {
-                        console.log('📡 Signaling: Connection shaky/lost, state:', pc.connectionState);
-                    }
-                }
-            };
-
-            pc.oniceconnectionstatechange = () => {
-                setIceState(pc.iceConnectionState);
-            };
-
-            if (localStreamRef.current) {
-                localStreamRef.current.getTracks().forEach((track: MediaStreamTrack) => {
-                    pc.addTrack(track, localStreamRef.current!);
-                });
-                // Apply initial bitrate constraints based on current quality setting
-                applyBitrateConstraints(pc, videoQuality);
-            }
-
-            peerConnectionRef.current = pc;
-            return pc;
-        };
-
-        const handleOffer = async (offer: any) => {
-            console.log('📡 Signaling: Received Offer');
-            const pc = createPC();
-            try {
-                await pc.setRemoteDescription(new RTCSessionDescription(offer));
-                while (pendingCandidates.current.length > 0) {
-                    const cand = pendingCandidates.current.shift();
-                    if (cand) await pc.addIceCandidate(new RTCIceCandidate(cand));
-                }
-                const answer = await pc.createAnswer();
-                await pc.setLocalDescription(answer);
-                socket.emit('answer', { roomId, answer });
-            } catch (err) {
-                console.error('Offer error:', err);
-            }
-        };
-
-        const handleAnswer = async (answer: any) => {
-            console.log('📡 Signaling: Received Answer');
-            const pc = peerConnectionRef.current;
-            if (pc) {
-                try {
-                    await pc.setRemoteDescription(new RTCSessionDescription(answer));
-                    while (pendingCandidates.current.length > 0) {
-                        const cand = pendingCandidates.current.shift();
-                        if (cand) await pc.addIceCandidate(new RTCIceCandidate(cand));
-                    }
-                } catch (err) {
-                    console.error('Answer error:', err);
-                }
-            }
-        };
-
-        const handleIceCandidate = async (candidate: any) => {
-            const pc = peerConnectionRef.current;
-            if (pc && pc.remoteDescription) {
-                try {
-                    await pc.addIceCandidate(new RTCIceCandidate(candidate));
-                } catch (e) {
-                    console.warn('ICE Candidate skipped');
-                }
-            } else {
-                pendingCandidates.current.push(candidate);
-            }
-        };
-
-        const handleRoomParticipants = async ({ participants }: any) => {
-            const myId = socket.id;
-            const others = participants.filter((p: string) => p !== myId);
-            partnerIdRef.current = others[0] || null;
-
-            // If partner joined and I am interviewer, ensures PC exists (onnegotiationneeded will handle the rest)
-            if (isInterviewerRef.current && partnerIdRef.current) {
-                console.log('📡 Signaling: Partner detected, ensuring PC...');
-                createPC();
-            }
-        };
 
         const handleRoleAssigned = async ({ role }: { role: 'interviewer' | 'candidate' }) => {
             console.log('📡 Signaling: Role assigned by server:', role);
             const isCaller = role === 'interviewer';
             setIsInterviewer(isCaller);
             isInterviewerRef.current = isCaller;
-
-            // If assigned interviewer and partner already here, ensuring PC
-            if (isCaller && partnerIdRef.current) {
-                console.log('📡 Signaling: Role assigned and partner present, ensuring PC...');
-                createPC();
-            }
         };
 
         const startFlow = async () => {
             try {
-                // Ensure socket is joined
-                socket.off('offer', handleOffer);
-                socket.off('answer', handleAnswer);
-                socket.off('ice-candidate', handleIceCandidate);
-                socket.off('room-participants', handleRoomParticipants);
-
-                socket.on('offer', handleOffer);
-                socket.on('answer', handleAnswer);
-                socket.on('ice-candidate', handleIceCandidate);
-                socket.on('room-participants', handleRoomParticipants);
                 socket.on('role-assigned', handleRoleAssigned);
-
                 socket.emit('join-room', { roomId, userName: user.email || 'Anonymous' });
                 addTerminalMessage({ type: 'system', message: '📡 Signaling: Connected to room.' });
             } catch (err: any) {
@@ -280,230 +167,12 @@ export default function OnlineInterview() {
             }
         };
 
-        if (isCallActive) {
-            startFlow();
-        } else {
-            cleanupPC();
-        }
-
-        (window as any).reconnectCall = () => {
-            addTerminalMessage({ type: 'system', message: '🔄 Force re-connecting media...' });
-
-            // Stop existing local stream tracks to release hardware
-            if (localStreamRef.current) {
-                localStreamRef.current.getTracks().forEach(t => t.stop());
-                localStreamRef.current = null;
-                setLocalStream(null);
-            }
-
-            cleanupPC();
-            if (isCallActive) startFlow();
-        };
+        startFlow();
 
         return () => {
-            socket.off('offer', handleOffer);
-            socket.off('answer', handleAnswer);
-            socket.off('ice-candidate', handleIceCandidate);
-            socket.off('room-participants', handleRoomParticipants);
             socket.off('role-assigned', handleRoleAssigned);
-            cleanupPC();
         };
-    }, [roomId, user?.id, isCallActive]);
-
-    // Separate Media Lifecycle: Keep camera alive once started
-    useEffect(() => {
-        if (!isCallActive) return;
-
-        const initMedia = async (retries = 3) => {
-            if (window.location.hostname !== 'localhost' && window.location.protocol !== 'https:') {
-                addTerminalMessage({ type: 'system', message: '⚠️ Security: HTTPS required for camera.' });
-            }
-
-            try {
-                // HARDWARE RELEASE: Always stop existing tracks before requesting new ones
-                if (localStreamRef.current) {
-                    console.log("🎬 Media: Releasing existing tracks...");
-                    localStreamRef.current.getTracks().forEach(t => t.stop());
-                    localStreamRef.current = null;
-                    setLocalStream(null);
-                }
-
-                if (!localStreamRef.current) {
-                    console.log("🎬 Media: Requesting camera access...");
-                    const stream = await navigator.mediaDevices.getUserMedia({
-                        video: { width: 640, height: 480, frameRate: 24 },
-                        audio: true
-                    });
-                    setLocalStream(stream);
-                    localStreamRef.current = stream;
-                    if (videoRef.current) videoRef.current.srcObject = stream;
-
-                    // Late track attachment: If PC exists, add tracks now
-                    if (peerConnectionRef.current) {
-                        const pc = peerConnectionRef.current;
-                        stream.getTracks().forEach(track => {
-                            const alreadyAdded = pc.getSenders().some(s => s.track === track);
-                            if (!alreadyAdded) {
-                                console.log(`🎬 Media: Manually adding late track ${track.kind} to PC`);
-                                pc.addTrack(track, stream);
-                            }
-                        });
-                    }
-
-                    addTerminalMessage({ type: 'system', message: '📸 Camera: Ready.' });
-                }
-            } catch (err: any) {
-                console.error("Media error:", err);
-                if (err.name === 'NotReadableError') {
-                    if (retries > 0) {
-                        addTerminalMessage({ type: 'system', message: `⚠️ Camera Busy: Retrying in 2s... (${retries} left)` });
-                        setTimeout(() => initMedia(retries - 1), 2000);
-                    } else {
-                        addTerminalMessage({ type: 'system', message: '❌ Camera Failure: Device is in use by another application. Please close other tabs/apps and click "Reset Cam".' });
-                    }
-                } else {
-                    addTerminalMessage({ type: 'system', message: `❌ Media Error: ${err.message}` });
-                }
-            }
-        };
-
-        initMedia();
-    }, [isCallActive]);
-
-    useEffect(() => {
-        if (localStream) {
-            localStream.getAudioTracks().forEach(track => {
-                track.enabled = !isMuted;
-            });
-            if (isMuted) {
-                console.log('🔇 Audio track disabled - saving bandwidth');
-                addTerminalMessage({ type: 'system', message: '🔇 Mic muted - audio transmission paused to save bandwidth' });
-            } else {
-                console.log('🎤 Audio track enabled');
-                addTerminalMessage({ type: 'system', message: '🎤 Mic unmuted - audio transmission resumed' });
-            }
-        }
-    }, [isMuted, localStream]);
-
-    useEffect(() => {
-        if (localStream) {
-            localStream.getVideoTracks().forEach(track => {
-                track.enabled = !isVideoOff;
-            });
-            if (isVideoOff) {
-                console.log('📹 Video track disabled - saving significant bandwidth');
-                addTerminalMessage({ type: 'system', message: '📹 Camera off - video transmission paused (saving ~80% bandwidth)' });
-            } else {
-                console.log('📹 Video track enabled');
-                addTerminalMessage({ type: 'system', message: '📹 Camera on - video transmission resumed' });
-            }
-        }
-    }, [isVideoOff, localStream]);
-
-    useEffect(() => {
-        if (localStream && videoRef.current && !isVideoOff) {
-            if (videoRef.current.srcObject === localStream) return;
-            videoRef.current.srcObject = localStream;
-        }
-    }, [isVideoOff, localStream]);
-
-    // Consolidated Remote Stream Binding with robust guards
-    useEffect(() => {
-        const video = remoteVideoRef.current;
-        if (remoteStream && video) {
-            if (video.srcObject === remoteStream) return;
-
-            console.log("🎬 Media: Attaching remote stream to video element");
-            video.srcObject = remoteStream;
-
-            video.play().catch(e => {
-                if (e.name === 'AbortError') {
-                    console.log("📽️ Playback was interrupted by a new request (Normal behavior during sync)");
-                } else {
-                    console.error("❌ Remote play error:", e);
-                    addTerminalMessage({ type: 'system', message: `⚠️ Video Error: ${e.message}` });
-                }
-            });
-        }
-    }, [remoteStream]);
-
-    const [videoQuality, setVideoQuality] = useState<'data-saver' | 'low' | 'medium' | 'high'>('low');
-    const [isChangingQuality, setIsChangingQuality] = useState(false);
-
-    const applyBitrateConstraints = async (pc: RTCPeerConnection, quality: string) => {
-        const bitrates: Record<string, number> = {
-            'data-saver': 100000, // 100kbps
-            'low': 250000,        // 250kbps
-            'medium': 600000,     // 600kbps
-            'high': 1500000       // 1.5Mbps
-        };
-
-        const bitrate = bitrates[quality] || 250000;
-        const senders = pc.getSenders();
-        const videoSender = senders.find(s => s.track?.kind === 'video');
-
-        if (videoSender) {
-            try {
-                const params = videoSender.getParameters();
-                if (!params.encodings) params.encodings = [{}];
-                params.encodings[0].maxBitrate = bitrate;
-                await videoSender.setParameters(params);
-                console.log(`🎬 Media: Bitrate capped at ${bitrate / 1000}kbps for ${quality} mode`);
-            } catch (err) {
-                console.warn("🎬 Media: Failed to set bitrate parameters", err);
-            }
-        }
-    };
-
-    const changeVideoQuality = async (quality: 'data-saver' | 'low' | 'medium' | 'high') => {
-        if (!localStream || isChangingQuality) return;
-        setIsChangingQuality(true);
-        setVideoQuality(quality);
-
-        const constraints = {
-            video: quality === 'data-saver' ? { width: 176, height: 144, frameRate: 15 } :
-                quality === 'low' ? { width: 320, height: 240, frameRate: 15 } :
-                    quality === 'medium' ? { width: 640, height: 480, frameRate: 24 } :
-                        { width: 1280, height: 720, frameRate: 30 },
-            audio: true
-        };
-
-        try {
-            const newStream = await navigator.mediaDevices.getUserMedia(constraints);
-            const newVideoTrack = newStream.getVideoTracks()[0];
-
-            // stop old video track
-            localStream.getVideoTracks().forEach(track => track.stop());
-
-            // Replace track in PeerConnection
-            if (peerConnectionRef.current) {
-                const pc = peerConnectionRef.current;
-                const senders = pc.getSenders();
-                const videoSender = senders.find(s => s.track?.kind === 'video');
-                if (videoSender) {
-                    await videoSender.replaceTrack(newVideoTrack);
-                    await applyBitrateConstraints(pc, quality);
-                }
-            }
-
-            // Update Local Stream State
-            const audioTrack = localStream.getAudioTracks()[0];
-            const consolidatedStream = new MediaStream([newVideoTrack, ...(audioTrack ? [audioTrack] : [])]);
-            setLocalStream(consolidatedStream);
-
-            if (videoRef.current) {
-                videoRef.current.srcObject = consolidatedStream;
-            }
-
-            addTerminalMessage({ type: 'system', message: `📹 Quality switched to: ${quality.toUpperCase()} (${quality === 'data-saver' ? '100' : quality === 'low' ? '250' : quality === 'medium' ? '600' : '1500'}kbps)` });
-
-        } catch (err) {
-            console.error("Failed to switch quality", err);
-            addTerminalMessage({ type: 'system', message: `⚠️ Failed to switch quality: ${err}` });
-        } finally {
-            setIsChangingQuality(false);
-        }
-    };
+    }, [roomId, user, isCallActive]);
 
     const [isRunning, setIsRunning] = useState(false);
 
@@ -944,7 +613,7 @@ export default function OnlineInterview() {
                 </Group>
             </div>
 
-            {/* Floating Dual Video Call UI */}
+            {/* Daily.co Video Call UI */}
             <div className="fixed bottom-24 right-8 z-50 flex flex-col items-end gap-6 pointer-events-none">
                 <AnimatePresence>
                     {isCallActive && (
@@ -956,124 +625,32 @@ export default function OnlineInterview() {
                             exit={{ scale: 0.8, opacity: 0, y: 20 }}
                             className="flex flex-col gap-4 pointer-events-auto cursor-move active:scale-95 transition-transform"
                         >
-                            <div className="flex gap-4">
-                                {/* Partner Video (Remote) */}
-                                <div className="w-44 h-56 bg-[#1a1a1a] rounded-[28px] border border-white/10 overflow-hidden shadow-2xl relative group ring-4 ring-indigo-500/10">
-                                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent z-10" />
-                                    <div className="absolute bottom-3 left-3 z-20 flex items-center gap-2">
-                                        <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-                                        <div className="absolute top-3 right-3 z-30 flex gap-1">
-                                            {tracksReceived.map(t => (
-                                                <div key={t} className="px-1.5 py-0.5 rounded bg-black/50 text-[7px] text-green-400 font-bold uppercase border border-green-500/20">
-                                                    {t}
-                                                </div>
-                                            ))}
-                                            <div className="px-1.5 py-0.5 rounded bg-black/50 text-[7px] text-indigo-400 font-bold uppercase border border-indigo-500/20">
-                                                ICE: {iceState}
-                                            </div>
-                                        </div>
-                                        <span className="text-[9px] font-black text-white uppercase tracking-wider">
-                                            Partner ({partnerIdRef.current ? partnerIdRef.current.slice(0, 4) : '...'})
-                                        </span>
-                                    </div>
-
-                                    {/* Video is always in DOM to avoid Ref issues, just hidden by the placeholder */}
-                                    <div className="w-full h-full bg-black relative flex items-center justify-center overflow-hidden">
-                                        <video
-                                            ref={remoteVideoRef}
-                                            autoPlay
-                                            playsInline
-                                            className={`w-full h-full object-cover transition-opacity duration-700 ${remoteStream ? 'opacity-100' : 'opacity-0'}`}
-                                        />
-                                        {!remoteStream && (
-                                            <div className="absolute inset-0 bg-indigo-500/5 flex items-center justify-center overflow-hidden">
-                                                <motion.div
-                                                    animate={{
-                                                        scale: [1, 1.1, 1],
-                                                        opacity: [0.3, 0.5, 0.3]
-                                                    }}
-                                                    transition={{ duration: 4, repeat: Infinity }}
-                                                    className="w-16 h-16 rounded-full bg-white/5 border border-white/10 flex items-center justify-center"
-                                                >
-                                                    <Users className="w-8 h-8 text-indigo-400/40" />
-                                                </motion.div>
-                                            </div>
-                                        )}
-                                        <div className="absolute inset-0 bg-indigo-500/5 pointer-events-none" />
-                                    </div>
-                                </div>
-
-                                {/* Self Video (Local) */}
-                                <div className="w-44 h-56 bg-[#1a1a1a] rounded-[28px] border border-indigo-500/30 overflow-hidden shadow-2xl relative group ring-4 ring-indigo-500/20">
-                                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent z-10" />
-                                    <div className="absolute bottom-3 left-3 z-20 flex items-center gap-2">
-                                        <div className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-                                        <span className="text-[9px] font-black text-white uppercase tracking-wider">You ({socket.id?.slice(0, 4) || 'Self'})</span>
-                                    </div>
-
-                                    {isVideoOff ? (
-                                        <div className="w-full h-full flex flex-col items-center justify-center bg-gray-950">
-                                            <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center mb-2">
-                                                <Users className="w-5 h-5 text-gray-700" />
-                                            </div>
-                                            <span className="text-[8px] text-gray-500 font-black uppercase tracking-widest">Camera Off</span>
-                                        </div>
-                                    ) : (
-                                        <div className="w-full h-full bg-black relative flex items-center justify-center overflow-hidden">
-                                            <video
-                                                ref={videoRef}
-                                                autoPlay
-                                                playsInline
-                                                muted
-                                                className="w-full h-full object-cover scale-x-[-1]"
-                                            />
-                                            <div className="absolute inset-0 bg-indigo-500/5 pointer-events-none" />
-                                        </div>
-                                    )}
-                                </div>
+                            <div className="w-[400px] h-[300px] bg-[#1a1a1a] rounded-[28px] border border-white/10 overflow-hidden shadow-2xl relative group ring-4 ring-indigo-500/10">
+                                <div ref={dailyContainerRef} className="w-full h-full" />
                             </div>
 
                             <div className="flex items-center justify-center gap-2 p-2.5 bg-gray-950/80 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-2xl self-center">
                                 <button
-                                    onClick={() => setIsMuted(!isMuted)}
+                                    onClick={toggleAudio}
                                     className={`p-3 rounded-xl transition-all ${isMuted ? 'bg-red-500 text-white shadow-lg shadow-red-500/20' : 'bg-white/5 text-gray-400 hover:text-white hover:bg-white/10'}`}
                                 >
                                     {isMuted ? <Mic className="w-4 h-4 fill-current" /> : <Mic className="w-4 h-4" />}
                                 </button>
                                 <button
-                                    onClick={() => setIsVideoOff(!isVideoOff)}
+                                    onClick={toggleVideo}
                                     className={`p-3 rounded-xl transition-all ${isVideoOff ? 'bg-red-500 text-white shadow-lg shadow-red-500/20' : 'bg-white/5 text-gray-400 hover:text-white hover:bg-white/10'}`}
                                 >
                                     {isVideoOff ? <Video className="w-4 h-4 fill-current" /> : <Video className="w-4 h-4" />}
                                 </button>
 
                                 <button
-                                    onClick={() => {
-                                        const nextMap: Record<string, 'data-saver' | 'low' | 'medium' | 'high'> = {
-                                            'high': 'medium',
-                                            'medium': 'low',
-                                            'low': 'data-saver',
-                                            'data-saver': 'high'
-                                        };
-                                        changeVideoQuality(nextMap[videoQuality]);
-                                    }}
-                                    disabled={isChangingQuality}
-                                    className={`px-3 py-2 rounded-xl transition-all font-black text-[10px] uppercase tracking-wider flex items-center gap-1 ${isChangingQuality ? 'opacity-50 cursor-not-allowed bg-white/5 text-gray-500' : 'bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500 hover:text-white border border-indigo-500/20'}`}
+                                    onClick={() => dailyCall?.requestFullscreen()}
+                                    className="p-3 rounded-xl bg-white/5 text-gray-400 hover:text-white hover:bg-white/10 transition-all"
+                                    title="Fullscreen"
                                 >
-                                    {isChangingQuality ? (
-                                        <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                                    ) : (
-                                        <span>{videoQuality === 'high' ? 'HD' : videoQuality === 'medium' ? 'SD' : videoQuality === 'low' ? 'LQ' : 'DS'}</span>
-                                    )}
+                                    <Maximize2 className="w-4 h-4" />
                                 </button>
 
-                                <button
-                                    onClick={() => (window as any).reconnectCall?.()}
-                                    className="p-3 rounded-xl bg-white/5 text-gray-400 hover:text-white hover:bg-white/10 transition-all shadow-xl"
-                                    title="Reconnect Call"
-                                >
-                                    <Zap className="w-4 h-4" />
-                                </button>
                                 <div className="w-[1px] h-6 bg-white/10 mx-2" />
                                 <button
                                     onClick={() => setIsCallActive(false)}
