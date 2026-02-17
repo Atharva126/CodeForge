@@ -148,8 +148,11 @@ export default function OnlineInterview() {
                 console.log("🎬 Media: Connection State:", pc.connectionState);
                 if (pc.connectionState === 'connected') {
                     addTerminalMessage({ type: 'system', message: '🤝 Connection: Established!' });
-                } else if (pc.connectionState === 'failed') {
-                    addTerminalMessage({ type: 'system', message: '❌ Connection: Failed. Use ⚡ to retry.' });
+                } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+                    if (isCallActive) {
+                        addTerminalMessage({ type: 'system', message: '⚠️ Connection: Lost. Attempting auto-reconnect...' });
+                        (window as any).reconnectCall?.();
+                    }
                 }
             };
 
@@ -235,20 +238,8 @@ export default function OnlineInterview() {
         };
 
         const startFlow = async (retries = 3) => {
-            // Check for Secure Context (HTTPS or localhost)
-            if (window.location.hostname !== 'localhost' && window.location.protocol !== 'https:') {
-                addTerminalMessage({ type: 'system', message: '⚠️ Security Warning: Browsers block camera/mic on non-HTTPS connections (except localhost). You may need to use localhost or setup HTTPS.' });
-            }
-
             try {
-                if (!localStreamRef.current) {
-                    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-                    setLocalStream(stream);
-                    localStreamRef.current = stream;
-                    if (videoRef.current) videoRef.current.srcObject = stream;
-                    addTerminalMessage({ type: 'system', message: '📸 Camera: Ready.' });
-                }
-
+                // Ensure socket is joined
                 socket.off('offer', handleOffer);
                 socket.off('answer', handleAnswer);
                 socket.off('ice-candidate', handleIceCandidate);
@@ -261,46 +252,22 @@ export default function OnlineInterview() {
                 socket.on('role-assigned', handleRoleAssigned);
 
                 socket.emit('join-room', { roomId, userName: user.email || 'Anonymous' });
+                addTerminalMessage({ type: 'system', message: '📡 Signaling: Connected to room.' });
             } catch (err: any) {
-                console.error("Camera access error:", err);
-
-                if (err.name === 'NotAllowedError') {
-                    addTerminalMessage({ type: 'system', message: '❌ Permissions: Camera/Mic access denied by user.' });
-                } else if (err.name === 'NotFoundError') {
-                    addTerminalMessage({ type: 'system', message: '❌ Hardware: No camera/mic found.' });
-                } else if (err.name === 'NotReadableError' || err.message.includes('Device in use')) {
-                    if (retries > 0) {
-                        addTerminalMessage({ type: 'system', message: `⚠️ Device busy, retrying in 1s... (${retries} left)` });
-                        setTimeout(() => startFlow(retries - 1), 1000);
-                    } else {
-                        addTerminalMessage({ type: 'system', message: '❌ Hardware: Camera/Mic is being used by another app. Close other tabs/apps and click "Reset Cam".' });
-                    }
-                } else {
-                    addTerminalMessage({ type: 'system', message: `❌ Media Error: ${err.message || err.name}` });
-                }
+                console.error("Signaling error:", err);
             }
         };
 
-        startFlow();
+        if (isCallActive) {
+            startFlow();
+        } else {
+            cleanupPC();
+        }
 
         (window as any).reconnectCall = () => {
             addTerminalMessage({ type: 'system', message: '🔄 Force re-connecting...' });
-
-            // Aggressive cleanup before restart
-            if (localStreamRef.current) {
-                localStreamRef.current.getTracks().forEach(t => {
-                    t.stop();
-                    console.log(`🛑 Stopped track: ${t.kind}`);
-                });
-                localStreamRef.current = null;
-                setLocalStream(null);
-            }
             cleanupPC();
-
-            // Small delay to let OS release hardware
-            setTimeout(() => {
-                startFlow();
-            }, 500);
+            if (isCallActive) startFlow();
         };
 
         return () => {
@@ -310,13 +277,42 @@ export default function OnlineInterview() {
             socket.off('room-participants', handleRoomParticipants);
             socket.off('role-assigned', handleRoleAssigned);
             cleanupPC();
-            if (localStreamRef.current) {
-                localStreamRef.current.getTracks().forEach(t => t.stop());
-                localStreamRef.current = null;
-                setLocalStream(null);
-            }
         };
     }, [roomId, user, isCallActive]);
+
+    // Separate Media Lifecycle: Keep camera alive once started
+    useEffect(() => {
+        if (!isCallActive) return;
+
+        const initMedia = async (retries = 3) => {
+            if (window.location.hostname !== 'localhost' && window.location.protocol !== 'https:') {
+                addTerminalMessage({ type: 'system', message: '⚠️ Security: HTTPS required for camera.' });
+            }
+
+            try {
+                if (!localStreamRef.current) {
+                    console.log("🎬 Media: Requesting camera access...");
+                    const stream = await navigator.mediaDevices.getUserMedia({
+                        video: { width: 640, height: 480, frameRate: 24 },
+                        audio: true
+                    });
+                    setLocalStream(stream);
+                    localStreamRef.current = stream;
+                    if (videoRef.current) videoRef.current.srcObject = stream;
+                    addTerminalMessage({ type: 'system', message: '📸 Camera: Ready.' });
+                }
+            } catch (err: any) {
+                console.error("Media error:", err);
+                if (retries > 0 && err.name === 'NotReadableError') {
+                    setTimeout(() => initMedia(retries - 1), 1000);
+                } else {
+                    addTerminalMessage({ type: 'system', message: `❌ Media Error: ${err.message}` });
+                }
+            }
+        };
+
+        initMedia();
+    }, [isCallActive]);
 
     useEffect(() => {
         if (localStream) {
@@ -437,6 +433,8 @@ export default function OnlineInterview() {
         return store;
     });
 
+    const isSyncingRef = useRef(false);
+
     useEffect(() => {
         if (!roomId || !store) return;
 
@@ -444,19 +442,25 @@ export default function OnlineInterview() {
 
         // Initial Load from Yjs to Tldraw
         const syncInitialData = () => {
-            store.mergeRemoteChanges(() => {
-                const records: any[] = [];
-                yMap.forEach((record: any) => {
-                    records.push(record);
+            if (isSyncingRef.current) return;
+            isSyncingRef.current = true;
+            try {
+                store.mergeRemoteChanges(() => {
+                    const records: any[] = [];
+                    yMap.forEach((record: any) => {
+                        records.push(record);
+                    });
+                    if (records.length > 0) {
+                        store.put(records);
+                    }
                 });
-                if (records.length > 0) {
-                    store.put(records);
-                }
-            });
+            } finally {
+                isSyncingRef.current = false;
+            }
         };
 
         const unlisten = store.listen((entry) => {
-            if (entry.source !== 'user') return;
+            if (entry.source !== 'user' || isSyncingRef.current) return;
             // Push local changes to Yjs
             yDocRef.current.transact(() => {
                 Object.entries(entry.changes.added).forEach(([id, record]) => yMap.set(id, record));
@@ -466,18 +470,22 @@ export default function OnlineInterview() {
         });
 
         const handleYMapChange = (event: Y.YMapEvent<any>) => {
-            if (event.transaction.local) return;
-            // Apply remote changes to Tldraw
-            store.mergeRemoteChanges(() => {
-                event.changes.keys.forEach((change, id) => {
-                    if (change.action === 'add' || change.action === 'update') {
-                        const record = yMap.get(id);
-                        if (record) store.put([record as any]);
-                    } else if (change.action === 'delete') {
-                        store.remove([id as any]);
-                    }
+            if (event.transaction.local || isSyncingRef.current) return;
+            isSyncingRef.current = true;
+            try {
+                store.mergeRemoteChanges(() => {
+                    event.changes.keys.forEach((change, id) => {
+                        if (change.action === 'add' || change.action === 'update') {
+                            const record = yMap.get(id);
+                            if (record) store.put([record as any]);
+                        } else if (change.action === 'delete') {
+                            store.remove([id as any]);
+                        }
+                    });
                 });
-            });
+            } finally {
+                isSyncingRef.current = false;
+            }
         };
 
         yMap.observe(handleYMapChange);
@@ -700,7 +708,6 @@ export default function OnlineInterview() {
                                                     <Tldraw
                                                         store={store}
                                                         autoFocus
-                                                        inferDarkMode
                                                     />
                                                 </div>
                                             </div>
