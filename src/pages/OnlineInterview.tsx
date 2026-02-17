@@ -686,7 +686,7 @@ export default function OnlineInterview() {
                                         </button>
                                     </div>
 
-                                    <div className={`flex-1 overflow-y-auto ${leftPanelMode === 'whiteboard' ? 'p-0' : 'p-6'}`}>
+                                    <div className={`flex-1 relative ${leftPanelMode === 'whiteboard' ? 'overflow-hidden p-0' : 'overflow-y-auto p-6'}`}>
                                         {leftPanelMode === 'description' ? (
                                             currentProblem ? (
                                                 <div className="space-y-6">
