@@ -27,21 +27,34 @@ io.on("connection", (socket) => {
   socket.on("join-room", ({ roomId, userName }) => {
     socket.join(roomId);
 
-    // Simplified participant tracking
+    // Track participants and roles
     if (!roomParticipants.has(roomId)) {
       roomParticipants.set(roomId, new Set());
+      roomRoles.set(roomId, new Map());
     }
+
     const participants = roomParticipants.get(roomId);
+    const roles = roomRoles.get(roomId);
+
     participants.add(socket.id);
 
-    // Broadcast updated participant list to everyone in the room
+    // Assign role: First person is interviewer, second is candidate
+    let role = 'candidate';
+    if (participants.size === 1) {
+      role = 'interviewer';
+    }
+    roles.set(socket.id, role);
+
+    // Broadcast updated participant list and specific role back to the joiner
     const participantsList = Array.from(participants);
     io.to(roomId).emit("room-participants", {
       participants: participantsList,
       joinedUserId: socket.id
     });
 
-    console.log(`🏠 ${userName} (${socket.id}) joined room: ${roomId}. Total: ${participantsList.length}`);
+    socket.emit("role-assigned", { role });
+
+    console.log(`🏠 ${userName} (${socket.id}) joined as ${role} in room: ${roomId}. Total: ${participantsList.length}`);
   });
 
   socket.on("push-problem", ({ roomId, problem }) => {
@@ -77,6 +90,9 @@ io.on("connection", (socket) => {
       if (participants.has(socket.id)) {
         participants.delete(socket.id);
 
+        const roles = roomRoles.get(roomId);
+        if (roles) roles.delete(socket.id);
+
         // Broadcast updated list immediately
         io.to(roomId).emit("room-participants", {
           participants: Array.from(participants),
@@ -87,6 +103,7 @@ io.on("connection", (socket) => {
 
         if (participants.size === 0) {
           roomParticipants.delete(roomId);
+          roomRoles.delete(roomId);
           console.log(`Trash: Room ${roomId} is empty and deleted.`);
         }
       }

@@ -216,13 +216,17 @@ export default function OnlineInterview() {
         const handleRoomParticipants = async ({ participants }: any) => {
             const myId = socket.id;
             const others = participants.filter((p: string) => p !== myId);
-            const isCaller = participants[0] === myId;
-
-            setIsInterviewer(isCaller);
             partnerIdRef.current = others[0] || null;
+        };
 
-            if (isCaller && participants.length > 1) {
-                console.log('📡 Signaling: Room ready, sending offer...');
+        const handleRoleAssigned = async ({ role }: { role: 'interviewer' | 'candidate' }) => {
+            console.log('📡 Signaling: Role assigned by server:', role);
+            const isCaller = role === 'interviewer';
+            setIsInterviewer(isCaller);
+
+            // Only interviewer triggers the offer when another participant is present
+            if (isCaller && partnerIdRef.current) {
+                console.log('📡 Signaling: Initiating offer as Interviewer...');
                 const pc = createPC();
                 const offer = await pc.createOffer();
                 await pc.setLocalDescription(offer);
@@ -254,6 +258,7 @@ export default function OnlineInterview() {
                 socket.on('answer', handleAnswer);
                 socket.on('ice-candidate', handleIceCandidate);
                 socket.on('room-participants', handleRoomParticipants);
+                socket.on('role-assigned', handleRoleAssigned);
 
                 socket.emit('join-room', { roomId, userName: user.email || 'Anonymous' });
             } catch (err: any) {
@@ -303,6 +308,7 @@ export default function OnlineInterview() {
             socket.off('answer', handleAnswer);
             socket.off('ice-candidate', handleIceCandidate);
             socket.off('room-participants', handleRoomParticipants);
+            socket.off('role-assigned', handleRoleAssigned);
             cleanupPC();
             if (localStreamRef.current) {
                 localStreamRef.current.getTracks().forEach(t => t.stop());
