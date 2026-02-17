@@ -219,17 +219,14 @@ export default function OnlineInterview() {
         const handleRoomParticipants = async ({ participants }: any) => {
             const myId = socket.id;
             const others = participants.filter((p: string) => p !== myId);
-            partnerIdRef.current = others[0] || null;
-        };
+            const newPartnerId = others[0] || null;
 
-        const handleRoleAssigned = async ({ role }: { role: 'interviewer' | 'candidate' }) => {
-            console.log('📡 Signaling: Role assigned by server:', role);
-            const isCaller = role === 'interviewer';
-            setIsInterviewer(isCaller);
+            const partnerJoined = !partnerIdRef.current && newPartnerId;
+            partnerIdRef.current = newPartnerId;
 
-            // Only interviewer triggers the offer when another participant is present
-            if (isCaller && partnerIdRef.current) {
-                console.log('📡 Signaling: Initiating offer as Interviewer...');
+            // CRITICAL: If I am the interviewer and a partner just joined, send offer
+            if (isInterviewer && partnerJoined) {
+                console.log('📡 Signaling: Partner joined, initiating offer as Interviewer...');
                 const pc = createPC();
                 const offer = await pc.createOffer();
                 await pc.setLocalDescription(offer);
@@ -237,7 +234,22 @@ export default function OnlineInterview() {
             }
         };
 
-        const startFlow = async (retries = 3) => {
+        const handleRoleAssigned = async ({ role }: { role: 'interviewer' | 'candidate' }) => {
+            console.log('📡 Signaling: Role assigned by server:', role);
+            const isCaller = role === 'interviewer';
+            setIsInterviewer(isCaller);
+
+            // Re-check: If I was assigned interviewer and partner is already here, send offer
+            if (isCaller && partnerIdRef.current) {
+                console.log('📡 Signaling: Assigned Interviewer and partner present, initiating offer...');
+                const pc = createPC();
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                socket.emit('offer', { roomId, offer });
+            }
+        };
+
+        const startFlow = async () => {
             try {
                 // Ensure socket is joined
                 socket.off('offer', handleOffer);
@@ -299,6 +311,19 @@ export default function OnlineInterview() {
                     setLocalStream(stream);
                     localStreamRef.current = stream;
                     if (videoRef.current) videoRef.current.srcObject = stream;
+
+                    // Late track attachment: If PC exists, add tracks now
+                    if (peerConnectionRef.current) {
+                        const pc = peerConnectionRef.current;
+                        stream.getTracks().forEach(track => {
+                            const alreadyAdded = pc.getSenders().some(s => s.track === track);
+                            if (!alreadyAdded) {
+                                console.log(`🎬 Media: Manually adding late track ${track.kind} to PC`);
+                                pc.addTrack(track, stream);
+                            }
+                        });
+                    }
+
                     addTerminalMessage({ type: 'system', message: '📸 Camera: Ready.' });
                 }
             } catch (err: any) {
@@ -703,8 +728,8 @@ export default function OnlineInterview() {
                                                 </div>
                                             )
                                         ) : (
-                                            <div className="h-full bg-[#0d0d0d] relative flex flex-col overflow-hidden">
-                                                <div className="flex-1 relative">
+                                            <div className="h-full min-h-0 bg-[#0d0d0d] relative flex flex-col overflow-hidden border border-white/5 rounded-2xl">
+                                                <div className="flex-1 relative h-full w-full min-h-[400px]">
                                                     <Tldraw
                                                         store={store}
                                                         autoFocus
