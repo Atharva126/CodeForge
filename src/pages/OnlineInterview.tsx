@@ -438,10 +438,22 @@ export default function OnlineInterview() {
     });
 
     useEffect(() => {
-        if (!roomId) return;
+        if (!roomId || !store) return;
 
-        // Simple sync logic: observe Yjs and update Tldraw
         const yMap = yDocRef.current.getMap('tldraw');
+
+        // Initial Load from Yjs to Tldraw
+        const syncInitialData = () => {
+            store.mergeRemoteChanges(() => {
+                const records: any[] = [];
+                yMap.forEach((record: any) => {
+                    records.push(record);
+                });
+                if (records.length > 0) {
+                    store.put(records);
+                }
+            });
+        };
 
         const unlisten = store.listen((entry) => {
             if (entry.source !== 'user') return;
@@ -453,22 +465,29 @@ export default function OnlineInterview() {
             });
         });
 
-        yMap.observe((event) => {
+        const handleYMapChange = (event: Y.YMapEvent<any>) => {
             if (event.transaction.local) return;
             // Apply remote changes to Tldraw
             store.mergeRemoteChanges(() => {
                 event.changes.keys.forEach((change, id) => {
                     if (change.action === 'add' || change.action === 'update') {
-                        store.put([yMap.get(id) as any]);
+                        const record = yMap.get(id);
+                        if (record) store.put([record as any]);
                     } else if (change.action === 'delete') {
                         store.remove([id as any]);
                     }
                 });
             });
-        });
+        };
+
+        yMap.observe(handleYMapChange);
+
+        // Export sync function for provider to use
+        (window as any).syncWhiteboard = syncInitialData;
 
         return () => {
             unlisten();
+            yMap.unobserve(handleYMapChange);
         };
     }, [roomId, store]);
 
@@ -477,8 +496,17 @@ export default function OnlineInterview() {
     useEffect(() => {
         if (!roomId || !user) return;
 
-        const provider = new SocketIOProvider(getSocketURL(), roomId, yDocRef.current, { autoConnect: true });
+        // Isolate Whiteboard Room to avoid conflicts
+        const whiteboardRoomId = `${roomId}-whiteboard`;
+        const provider = new SocketIOProvider(getSocketURL(), whiteboardRoomId, yDocRef.current, { autoConnect: true });
         providerRef.current = provider;
+
+        provider.on('sync', (isSynced: boolean) => {
+            if (isSynced && (window as any).syncWhiteboard) {
+                console.log('🎨 Whiteboard: Synced with server, performing initial load...');
+                (window as any).syncWhiteboard();
+            }
+        });
 
         addTerminalMessage({ type: 'system', message: '🎨 Whiteboard: Initializing high-performance canvas...' });
 
