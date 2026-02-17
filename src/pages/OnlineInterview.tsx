@@ -23,7 +23,6 @@ import {
     Maximize2
 } from 'lucide-react';
 import { io } from 'socket.io-client';
-import DailyIframe, { DailyCall } from '@daily-co/daily-js';
 import * as Y from 'yjs';
 import { SocketIOProvider } from 'y-socket.io';
 import { Excalidraw } from '@excalidraw/excalidraw';
@@ -80,69 +79,78 @@ export default function OnlineInterview() {
             addTerminalMessage({ type: 'system', message: '📋 Invite link copied to clipboard!' });
         });
     };
-    const [dailyCall, setDailyCall] = useState<DailyCall | null>(null);
-    const dailyContainerRef = useRef<HTMLDivElement>(null);
+    const [jitsiApi, setJitsiApi] = useState<any>(null);
+    const jitsiContainerRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-        if (!roomId || !user || !isCallActive || !dailyContainerRef.current || dailyCall) return;
+        if (!roomId || !user || !isCallActive || !jitsiContainerRef.current || jitsiApi) return;
 
-        console.log('🎬 Daily: Initializing call for room:', roomId);
+        // Jitsi Meet External API is loaded in index.html
+        if (!(window as any).JitsiMeetExternalAPI) {
+            console.error('🎬 Jitsi: API not loaded');
+            addTerminalMessage({ type: 'system', message: '❌ Call Error: Video engine not ready. Please refresh.' });
+            return;
+        }
 
-        // In a real app, you'd fetch a meeting token from your backend.
-        // For this demo/optimized version, we use a public room URL pattern.
-        // NOTE: Replace 'codeforge' with your actual Daily subdomain if available.
-        const ROOM_URL = `https://codeforge.daily.co/${roomId}`;
+        console.log('🎬 Jitsi: Initializing call for room:', roomId);
 
-        const call = DailyIframe.createFrame(dailyContainerRef.current, {
-            iframeStyle: {
-                width: '100%',
-                height: '100%',
-                border: '0',
-                borderRadius: '28px',
+        const domain = 'meet.jit.si';
+        const options = {
+            roomName: `codeforge-${roomId}`,
+            width: '100%',
+            height: '100%',
+            parentNode: jitsiContainerRef.current,
+            userInfo: {
+                displayName: user.email?.split('@')[0] || 'Anonymous'
             },
-            showLeaveButton: false,
-            showFullscreenButton: true,
-            userName: user.email || 'Anonymous'
-        });
+            configOverwrite: {
+                startWithAudioMuted: false,
+                startWithVideoMuted: false,
+                prejoinPageEnabled: false,
+                disableDeepLinking: true
+            },
+            interfaceConfigOverwrite: {
+                TOOLBAR_BUTTONS: [
+                    'microphone', 'camera', 'fullscreen', 'fittowindow', 'hangup', 'chat', 'settings', 'videoquality'
+                ],
+                SETTINGS_SECTIONS: ['devices', 'language', 'profile'],
+                SHOW_PROMOTIONAL_CLOSE_PAGE: false
+            }
+        };
 
-        call.join({ url: ROOM_URL }).catch(err => {
-            console.error('🎬 Daily: Join failed', err);
-            addTerminalMessage({ type: 'system', message: '❌ Call Error: Could not join the video room.' });
-        });
+        const api = new (window as any).JitsiMeetExternalAPI(domain, options);
+        setJitsiApi(api);
 
-        call.on('joined-meeting', () => {
-            addTerminalMessage({ type: 'system', message: '🤝 Connection: Global SFU Established!' });
-            setDailyCall(call);
-        });
-
-        call.on('error', (e) => {
-            console.error('🎬 Daily: Error', e);
-            addTerminalMessage({ type: 'system', message: `⚠️ Call Issue: ${e.errorMsg}` });
+        api.addEventListeners({
+            readyToClose: () => setIsCallActive(false),
+            videoConferenceJoined: () => {
+                addTerminalMessage({ type: 'system', message: '🤝 Connection: Jitsi Global SFU Established!' });
+            },
+            participantJoined: (participant: any) => {
+                addTerminalMessage({ type: 'system', message: `👤 Participant joined: ${participant.displayName}` });
+            }
         });
 
         return () => {
-            console.log('🎬 Daily: Leaving and destroying call');
-            call.leave();
-            call.destroy();
-            setDailyCall(null);
+            console.log('🎬 Jitsi: Disposing call');
+            api.dispose();
+            setJitsiApi(null);
         };
     }, [roomId, user, isCallActive]);
 
     const toggleAudio = useCallback(() => {
-        if (dailyCall) {
-            const isAudioEnabled = dailyCall.localAudio();
-            dailyCall.setLocalAudio(!isAudioEnabled);
-            setIsMuted(isAudioEnabled);
+        if (jitsiApi) {
+            jitsiApi.executeCommand('toggleAudio');
+            setIsMuted(!isMuted);
         }
-    }, [dailyCall]);
+    }, [jitsiApi, isMuted]);
 
     const toggleVideo = useCallback(() => {
-        if (dailyCall) {
-            const isVideoEnabled = dailyCall.localVideo();
-            dailyCall.setLocalVideo(!isVideoEnabled);
-            setIsVideoOff(isVideoEnabled);
+        if (jitsiApi) {
+            jitsiApi.executeCommand('toggleVideo');
+            setIsVideoOff(!isVideoOff);
         }
-    }, [dailyCall]);
+    }, [jitsiApi, isVideoOff]);
 
     const [isInterviewer, setIsInterviewer] = useState(false);
     const isInterviewerRef = useRef(false);
@@ -625,8 +633,8 @@ export default function OnlineInterview() {
                             exit={{ scale: 0.8, opacity: 0, y: 20 }}
                             className="flex flex-col gap-4 pointer-events-auto cursor-move active:scale-95 transition-transform"
                         >
-                            <div className="w-[400px] h-[300px] bg-[#1a1a1a] rounded-[28px] border border-white/10 overflow-hidden shadow-2xl relative group ring-4 ring-indigo-500/10">
-                                <div ref={dailyContainerRef} className="w-full h-full" />
+                            <div className="w-[500px] h-[400px] bg-[#1a1a1a] rounded-[28px] border border-white/10 overflow-hidden shadow-2xl relative group ring-4 ring-indigo-500/10">
+                                <div ref={jitsiContainerRef} className="w-full h-full" />
                             </div>
 
                             <div className="flex items-center justify-center gap-2 p-2.5 bg-gray-950/80 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-2xl self-center">
@@ -644,7 +652,7 @@ export default function OnlineInterview() {
                                 </button>
 
                                 <button
-                                    onClick={() => dailyCall?.requestFullscreen()}
+                                    onClick={() => jitsiApi?.executeCommand('toggleFullscreen')}
                                     className="p-3 rounded-xl bg-white/5 text-gray-400 hover:text-white hover:bg-white/10 transition-all"
                                     title="Fullscreen"
                                 >

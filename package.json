@@ -15,7 +15,6 @@
     "typecheck": "tsc --noEmit -p tsconfig.app.json"
   },
   "dependencies": {
-    "@daily-co/daily-js": "^0.87.0",
     "@excalidraw/excalidraw": "^0.18.0",
     "@google/generative-ai": "^0.24.1",
     "@monaco-editor/react": "^4.7.0",
