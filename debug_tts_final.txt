@@ -1,0 +1,18 @@
+
+Testing URL: https://api.sarvam.ai/text-to-speech
+Payload: {"text":"test","speaker":"meera","model":"bulbul:v3"}
+FAIL 400: {"error":{"message":"Validation Error(s):\n- speaker: Input should be 'anushka', 'abhilash', 'manisha', 'vidya', 'arya', 'karun', 'hitesh', 'aditya', 'ritu', 'priya', 'neha', 'rahul', 'pooja', 'rohan', 'simran', 'kavya', 'amit', 'dev', 'ishita', 'shreya', 'ratan', 'varun', 'manan', 'sumit', 'roopa', 'kabir', 'aayan', 'shubh', 'ashutosh', 'advait', 'amelia', 'sophia', 'anand', 'tanya', 'tarun', 'sunny', 'mani', 'gokul', 'vijay', 'shruti', 'suhani', 'mohit', 'kavitha', 'rehan', 'soham' or 'rupali'","code":"invalid_request_error","request_id":"20260217_174895db-78ce-477c-a4ee-a8b758ae96cd"}}
+Payload: {"inputs":["test"],"target_language_code":"en-IN","speaker":"meera","model":"bulbul:v3"}
+FAIL 400: {"error":{"message":"Validation Error(s):\n- speaker: Input should be 'anushka', 'abhilash', 'manisha', 'vidya', 'arya', 'karun', 'hitesh', 'aditya', 'ritu', 'priya', 'neha', 'rahul', 'pooja', 'rohan', 'simran', 'kavya', 'amit', 'dev', 'ishita', 'shreya', 'ratan', 'varun', 'manan', 'sumit', 'roopa', 'kabir', 'aayan', 'shubh', 'ashutosh', 'advait', 'amelia', 'sophia', 'anand', 'tanya', 'tarun', 'sunny', 'mani', 'gokul', 'vijay', 'shruti', 'suhani', 'mohit', 'kavitha', 'rehan', 'soham' or 'rupali'","code":"invalid_request_error","request_id":"20260217_2ab46b28-e4f2-4f3f-92ab-1b0406a41330"}}
+
+Testing URL: https://api.sarvam.ai/api/v1/text-to-speech
+Payload: {"text":"test","speaker":"meera","model":"bulbul:v3"}
+FAIL 404: {"error":{"message":"Not Found","code":"not_found_error","request_id":"20260217_a2a2c9c2-6b1c-4ee4-a70f-bf25da731478"}}
+Payload: {"inputs":["test"],"target_language_code":"en-IN","speaker":"meera","model":"bulbul:v3"}
+FAIL 404: {"error":{"message":"Not Found","code":"not_found_error","request_id":"20260217_e562be68-0f9d-4ae5-9be2-834022f3230a"}}
+
+Testing URL: https://api.sarvam.ai/v1/text-to-speech
+Payload: {"text":"test","speaker":"meera","model":"bulbul:v3"}
+FAIL 404: {"error":{"message":"Not Found","code":"not_found_error","request_id":"20260217_111a2c0a-e8ba-407f-8d05-4c376186a9b3"}}
+Payload: {"inputs":["test"],"target_language_code":"en-IN","speaker":"meera","model":"bulbul:v3"}
+FAIL 404: {"error":{"message":"Not Found","code":"not_found_error","request_id":"20260217_f430c150-e2f6-451d-adda-c09cdbf8d9a7"}}

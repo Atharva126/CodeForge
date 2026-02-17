@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Groq Key Test</title>
+</head>
+<body>
+    <h1>Environment Variable Test</h1>
+    <div id="result"></div>
+    <script type="module">
+        const groqKey = import.meta.env.VITE_GROQ_API_KEY;
+        const sarvamKey = import.meta.env.VITE_SARVAM_API_KEY;
+        
+        const result = document.getElementById('result');
+        result.innerHTML = `
+            <p><strong>Groq Key:</strong> ${groqKey ? groqKey.substring(0, 10) + '... (length: ' + groqKey.length + ')' : 'MISSING'}</p>
+            <p><strong>Sarvam Key:</strong> ${sarvamKey ? sarvamKey.substring(0, 10) + '... (length: ' + sarvamKey.length + ')' : 'MISSING'}</p>
+            <p><strong>Groq Valid:</strong> ${groqKey && groqKey.length > 20 && !groqKey.includes('your_') ? 'YES ✅' : 'NO ❌'}</p>
+        `;
+        
+        console.log('Groq Key Test:', groqKey ? 'Found' : 'Missing');
+        console.log('Key length:', groqKey?.length);
+        console.log('Is placeholder?:', groqKey?.includes('your_'));
+    </script>
+</body>
+</html>

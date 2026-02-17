@@ -1,7 +1,7 @@
-﻿import { useState, useEffect, useRef } from 'react';
+﻿import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { ArrowLeft, Play, Send, ChevronDown, Loader2, CheckCircle, XCircle } from 'lucide-react';
+import { ArrowLeft, Play, Send, ChevronDown, Loader2, CheckCircle, XCircle, Users, Copy, Check } from 'lucide-react';
 import { problemsData } from '../data/problemsData';
 import Editor from '@monaco-editor/react';
 import SubmissionAnalyticsModal from '../components/SubmissionAnalyticsModal';
@@ -9,6 +9,7 @@ import { supabase } from '../lib/supabase';
 import BadgeService from '../services/badgeService';
 import { gamificationService } from '../services/gamificationService';
 import OnlineJudge from '../services/OnlineJudge';
+import CollaborativeEditor from '../components/workspace/CollaborativeEditor';
 
 interface TestCase {
   input: string;
@@ -274,6 +275,16 @@ export default function CodingInterface() {
   const [isDraggingVertical, setIsDraggingVertical] = useState(false);
   const [editorHeight, setEditorHeight] = useState(60);
   const [showAnalytics, setShowAnalytics] = useState(false);
+  const [isCollaborating, setIsCollaborating] = useState(!!queryParams.get('collab'));
+  const [roomID, setRoomID] = useState(queryParams.get('collab') || '');
+  const [isCopied, setIsCopied] = useState(false);
+
+  // Memoize collab user details to prevent CollaborativeEditor from re-initializing constantly
+  const collabUser = useRef({
+    name: user?.email?.split('@')[0] || `User-${Math.floor(Math.random() * 1000)}`,
+    color: `hsl(${Math.random() * 360}, 70%, 60%)`
+  }).current;
+
   const editorRef = useRef<HTMLDivElement>(null);
   const codeLanguageRef = useRef(selectedLanguage);
   const isInitialLoadRef = useRef(true);
@@ -323,6 +334,13 @@ export default function CodingInterface() {
       }
     }
     loadProblemAndCode();
+  }, [id, selectedLanguage]);
+
+  const handleCollabChange = useCallback((v: string) => {
+    setCode(v);
+    if (id) {
+      localStorage.setItem(`code_${id}_${selectedLanguage}`, v);
+    }
   }, [id, selectedLanguage]);
 
   useEffect(() => {
@@ -614,6 +632,46 @@ export default function CodingInterface() {
             <ChevronDown className="absolute right-2 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
           </div>
 
+          <button
+            onClick={() => {
+              if (isCollaborating) {
+                setIsCollaborating(false);
+                const newParams = new URLSearchParams(location.search);
+                newParams.delete('collab');
+                navigate({ search: newParams.toString() });
+              } else {
+                const newRoomId = Math.random().toString(36).substring(7);
+                setRoomID(newRoomId);
+                setIsCollaborating(true);
+                const newParams = new URLSearchParams(location.search);
+                newParams.set('collab', newRoomId);
+                navigate({ search: newParams.toString() });
+              }
+            }}
+            className={`flex items-center gap-2 px-4 py-1.5 rounded-lg transition-colors ${isCollaborating ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-300 hover:bg-gray-700'}`}
+            title={isCollaborating ? "Stop Collaborating" : "Collaborate with Friends"}
+          >
+            <Users className="w-4 h-4" />
+            <span>{isCollaborating ? 'Collaborating' : 'Collaborate'}</span>
+          </button>
+
+          {isCollaborating && (
+            <button
+              onClick={() => {
+                const url = window.location.href;
+                navigator.clipboard.writeText(url);
+                setIsCopied(true);
+                setTimeout(() => setIsCopied(false), 2000);
+              }}
+              className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 px-4 py-1.5 rounded-lg transition-colors text-gray-300"
+            >
+              {isCopied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+              <span>{isCopied ? 'Copied!' : 'Share'}</span>
+            </button>
+          )}
+
+          <div className="h-6 w-[1px] bg-gray-700 mx-2" />
+
           <button onClick={() => runJudge(false)} disabled={executionResult.status === 'running'} className="flex items-center gap-2 bg-gray-800 hover:bg-gray-700 px-4 py-1.5 rounded-lg transition-colors">
             <Play className="w-4 h-4" />
             <span>Run</span>
@@ -670,14 +728,26 @@ export default function CodingInterface() {
                 </div>
               </button>
             </div>
-            <Editor
-              height="100%"
-              language={languages.find(l => l.id === selectedLanguage)?.monaco || 'javascript'}
-              value={code}
-              onChange={(v) => setCode(v || '')}
-              theme="vs-dark"
-              options={{ minimap: { enabled: false }, fontSize: 14, automaticLayout: true }}
-            />
+            {isCollaborating ? (
+              <CollaborativeEditor
+                language={selectedLanguage}
+                roomId={roomID}
+                userName={collabUser.name}
+                userColor={collabUser.color}
+                onLanguageChange={(lang) => setSelectedLanguage(lang)}
+                onChange={handleCollabChange}
+                theme="vs-dark"
+              />
+            ) : (
+              <Editor
+                height="100%"
+                language={languages.find(l => l.id === selectedLanguage)?.monaco || 'javascript'}
+                value={code}
+                onChange={(v) => setCode(v || '')}
+                theme="vs-dark"
+                options={{ minimap: { enabled: false }, fontSize: 14, automaticLayout: true }}
+              />
+            )}
           </div>
 
           <div className="h-1 bg-gray-800 hover:bg-blue-600 cursor-row-resize" onMouseDown={() => setIsDraggingVertical(true)} />

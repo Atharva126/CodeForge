@@ -1,0 +1,13 @@
+[dotenv@17.3.1] injecting env (9) from .env -- tip: ⚙️  enable debug logging with { debug: true }
+Sarvam Key: sk_11d9v...
+
+--- Testing Bulbul v3 Endpoints ---
+Testing: https://api.sarvam.ai/api/v1/text-to-speech ...
+❌ Error for https://api.sarvam.ai/api/v1/text-to-speech: 404 - {"error":{"message":"Not Found","code":"not_found_error","request_id":"20260217_38599bf9-8412-4591-882c-e7e428968e73"}}
+Testing: https://api.sarvam.ai/v1/text-to-speech ...
+❌ Error for https://api.sarvam.ai/v1/text-to-speech: 404 - {"error":{"message":"Not Found","code":"not_found_error","request_id":"20260217_150fdfa9-4fe3-4e8f-bbf7-7ac74e0b46d8"}}
+Testing: https://api.sarvam.ai/text-to-speech ...
+❌ Error for https://api.sarvam.ai/text-to-speech: 400 - {"error":{"message":"Validation Error(s):\n- speaker: Input should be 'anushka', 'abhilash', 'manisha', 'vidya', 'arya', 'karun', 'hitesh', 'aditya', 'ritu', 'priya', 'neha', 'rahul', 'pooja', 'rohan', 'simran', 'kavya', 'amit', 'dev', 'ishita', 'shreya', 'ratan', 'varun', 'manan', 'sumit', 'roopa', 'kabir', 'aayan', 'shubh', 'ashutosh', 'advait', 'amelia', 'sophia', 'anand', 'tanya', 'tarun', 'sunny', 'mani', 'gokul', 'vijay', 'shruti', 'suhani', 'mohit', 'kavitha', 'rehan', 'soham' or 'rupali'","code":"invalid_request_error","request_id":"20260217_37613bb0-84b7-4d85-9163-b3cc4fd6b3e1"}}
+
+--- Testing Bulbul v2 Endpoints ---
+❌ Error for v2: 404 - {"error":{"message":"Not Found","code":"not_found_error","request_id":"20260217_e2a8597d-86f1-4ee4-ab2b-2a9b08dedd93"}}

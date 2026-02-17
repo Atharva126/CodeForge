@@ -11,7 +11,12 @@ import Problems from './pages/Problems';
 import ProblemDescription from './pages/ProblemDescription';
 import CodingInterface from './pages/CodingInterface';
 import Contests from './pages/Contests';
-import Interview from './pages/Interview';
+import InterviewHub from './pages/InterviewHub';
+import MockAssessment from './pages/MockAssessment';
+import MockResults from './pages/MockResults';
+import OnlineInterview from './pages/OnlineInterview';
+import AIInterview from './pages/AIInterview';
+import { MockSessionProvider } from './contexts/MockSessionContext';
 import Profile from './pages/Profile';
 import Notes from './pages/Notes';
 import Explore from './pages/Explore';
@@ -51,136 +56,144 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return user ? <>{children}</> : <Navigate to="/login" />;
 }
 
+
+
 function AppContent() {
   const { user } = useAuth();
 
   return (
     <GamificationProvider user={user}>
-      <BrowserRouter>
-        <div className="min-h-screen bg-white dark:bg-gray-950 text-gray-900 dark:text-white transition-colors duration-300">
-          <Routes>
-            <Route path="/" element={<><Navbar /><Landing /></>} />
-            <Route path="/login" element={<><Navbar /><Login /></>} />
-            <Route path="/signup" element={<><Navbar /><Signup /></>} />
-            <Route path="/problems" element={<><Navbar /><Problems /></>} />
-            <Route path="/problem/:id" element={<><Navbar /><ProblemDescription /></>} />
-            <Route path="/solve/:id" element={<><Navbar /><CodingInterface /></>} />
-            <Route path="/contests" element={<><Navbar /><Contests /></>} />
-            <Route path="/contests/:slug" element={<><Navbar /><ContestDetail /></>} />
-            <Route path="/battle/:id" element={<ProtectedRoute><BattleRoom /></ProtectedRoute>} />
-            <Route path="/interview" element={<><Navbar /><Interview /></>} />
+      <MockSessionProvider>
+        <BrowserRouter>
+          <div className="min-h-screen bg-white dark:bg-gray-950 text-gray-900 dark:text-white transition-colors duration-300">
+            <Routes>
+              <Route path="/" element={<><Navbar /><Landing /></>} />
+              <Route path="/login" element={<><Navbar /><Login /></>} />
+              <Route path="/signup" element={<><Navbar /><Signup /></>} />
+              <Route path="/problems" element={<><Navbar /><Problems /></>} />
+              <Route path="/problem/:id" element={<><Navbar /><ProblemDescription /></>} />
+              <Route path="/solve/:id" element={<><Navbar /><CodingInterface /></>} />
+              <Route path="/contests" element={<><Navbar /><Contests /></>} />
+              <Route path="/contests/:slug" element={<><Navbar /><ContestDetail /></>} />
+              <Route path="/battle/:id" element={<ProtectedRoute><BattleRoom /></ProtectedRoute>} />
+              <Route path="/interview" element={<><Navbar /><InterviewHub /></>} />
+              <Route path="/interview/mock" element={<ProtectedRoute><MockAssessment /></ProtectedRoute>} />
+              <Route path="/interview/results" element={<ProtectedRoute><MockResults /></ProtectedRoute>} />
+              <Route path="/interview/online/:roomId" element={<ProtectedRoute><OnlineInterview /></ProtectedRoute>} />
+              <Route path="/interview/ai/:roleId" element={<ProtectedRoute><AIInterview /></ProtectedRoute>} />
 
 
-            <Route path="/explore" element={<><Navbar /><Explore /></>} />
-            <Route path="/explore/:slug" element={<><Navbar /><RoadmapDetail /></>} />
-            <Route path="/discuss" element={<><Navbar /><Discuss /></>} />
-            <Route path="/discuss/new" element={<ProtectedRoute><Navbar /><NewDiscussion /></ProtectedRoute>} />
-            <Route path="/discuss/:id" element={<><Navbar /><DiscussionDetail /></>} />
-            <Route path="/store" element={<><Navbar /><Store /></>} />
-            <Route path="/leaderboard" element={<><Navbar /><Leaderboard /></>} />
-            <Route path="/playground" element={<ProtectedRoute><Navbar /><Playground /></ProtectedRoute>} />
-            <Route path="/badges" element={<ProtectedRoute><Navbar /><Badges /></ProtectedRoute>} />
-            <Route path="/challenges" element={<ProtectedRoute><Navbar /><Challenges /></ProtectedRoute>} />
-            <Route
-              path="/notes"
-              element={
-                <ProtectedRoute>
-                  <Navbar />
-                  <Notes />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/dashboard"
-              element={
-                <ProtectedRoute>
-                  <Navbar />
-                  <Dashboard />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/profile/:username?"
-              element={
-                <ProtectedRoute>
-                  <Navbar />
-                  <Profile />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/orders"
-              element={
-                <ProtectedRoute>
-                  <Navbar />
-                  <Orders />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/course-lab/:courseId"
-              element={
-                <ProtectedRoute>
-                  <CourseLab />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/settings"
-              element={
-                <ProtectedRoute>
-                  <Navbar />
-                  <Settings />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/visualizer"
-              element={
-                <ProtectedRoute>
-                  <Visualizer />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/my-courses"
-              element={
-                <ProtectedRoute>
-                  <Navbar />
-                  <MyCourses />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/skills"
-              element={
-                <ProtectedRoute>
-                  <Navbar />
-                  <Skills />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/progress"
-              element={
-                <ProtectedRoute>
-                  <Navbar />
-                  <Progress />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/my-lists"
-              element={
-                <ProtectedRoute>
-                  <Navbar />
-                  <MyLists />
-                </ProtectedRoute>
-              }
-            />
-          </Routes>
-        </div>
-      </BrowserRouter>
+              <Route path="/explore" element={<><Navbar /><Explore /></>} />
+              <Route path="/explore/:slug" element={<><Navbar /><RoadmapDetail /></>} />
+              <Route path="/discuss" element={<><Navbar /><Discuss /></>} />
+              <Route path="/discuss/new" element={<ProtectedRoute><Navbar /><NewDiscussion /></ProtectedRoute>} />
+              <Route path="/discuss/:id" element={<><Navbar /><DiscussionDetail /></>} />
+              <Route path="/store" element={<><Navbar /><Store /></>} />
+              <Route path="/leaderboard" element={<><Navbar /><Leaderboard /></>} />
+              <Route path="/playground" element={<ProtectedRoute><Navbar /><Playground /></ProtectedRoute>} />
+              <Route path="/badges" element={<ProtectedRoute><Navbar /><Badges /></ProtectedRoute>} />
+              <Route path="/challenges" element={<ProtectedRoute><Navbar /><Challenges /></ProtectedRoute>} />
+              <Route
+                path="/notes"
+                element={
+                  <ProtectedRoute>
+                    <Navbar />
+                    <Notes />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/dashboard"
+                element={
+                  <ProtectedRoute>
+                    <Navbar />
+                    <Dashboard />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/profile/:username?"
+                element={
+                  <ProtectedRoute>
+                    <Navbar />
+                    <Profile />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/orders"
+                element={
+                  <ProtectedRoute>
+                    <Navbar />
+                    <Orders />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/course-lab/:courseId"
+                element={
+                  <ProtectedRoute>
+                    <CourseLab />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/settings"
+                element={
+                  <ProtectedRoute>
+                    <Navbar />
+                    <Settings />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/visualizer"
+                element={
+                  <ProtectedRoute>
+                    <Visualizer />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/my-courses"
+                element={
+                  <ProtectedRoute>
+                    <Navbar />
+                    <MyCourses />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/skills"
+                element={
+                  <ProtectedRoute>
+                    <Navbar />
+                    <Skills />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/progress"
+                element={
+                  <ProtectedRoute>
+                    <Navbar />
+                    <Progress />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/my-lists"
+                element={
+                  <ProtectedRoute>
+                    <Navbar />
+                    <MyLists />
+                  </ProtectedRoute>
+                }
+              />
+            </Routes>
+          </div>
+        </BrowserRouter>
+      </MockSessionProvider>
     </GamificationProvider>
   );
 }
