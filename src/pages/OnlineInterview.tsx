@@ -26,7 +26,6 @@ import { io } from 'socket.io-client';
 import * as Y from 'yjs';
 import { SocketIOProvider } from 'y-socket.io';
 import { Excalidraw } from '@excalidraw/excalidraw';
-import "@excalidraw/excalidraw/index.css";
 import debounce from 'lodash.debounce';
 import CollaborativeEditor from '../components/workspace/CollaborativeEditor';
 import { useAuth } from '../contexts/AuthContext';
@@ -721,33 +720,21 @@ export default function OnlineInterview() {
                                                 </div>
                                             )
                                         ) : (
-                                            /* Higher performance container for Excalidraw */
-                                            <div className="h-full w-full bg-[#121212] relative overflow-hidden flex flex-col">
-                                                <div className="flex-1 w-full h-full relative" id="excalidraw-wrapper">
-                                                    <style>{`
-                                                        #excalidraw-wrapper .excalidraw {
-                                                            height: 100% !important;
-                                                            width: 100% !important;
+                                            /* Clean, full-height container for Excalidraw */
+                                            <div className="absolute inset-0 bg-[#121212]">
+                                                <Excalidraw
+                                                    excalidrawAPI={(api: any) => setExcalidrawAPI(api)}
+                                                    onChange={handleExcalidrawChange}
+                                                    theme="dark"
+                                                    UIOptions={{
+                                                        canvasActions: {
+                                                            toggleTheme: false,
+                                                            export: false,
+                                                            loadScene: false,
+                                                            saveToActiveFile: false,
                                                         }
-                                                        /* Prevent sidebar conflicts with excalidraw toolbar */
-                                                        .excalidraw .App-menu_top {
-                                                            padding-top: 8px;
-                                                        }
-                                                    `}</style>
-                                                    <Excalidraw
-                                                        excalidrawAPI={(api: any) => setExcalidrawAPI(api)}
-                                                        onChange={handleExcalidrawChange}
-                                                        theme="dark"
-                                                        UIOptions={{
-                                                            canvasActions: {
-                                                                toggleTheme: false,
-                                                                export: false,
-                                                                loadScene: false,
-                                                                saveToActiveFile: false,
-                                                            }
-                                                        }}
-                                                    />
-                                                </div>
+                                                    }}
+                                                />
                                             </div>
                                         )}
                                     </div>
