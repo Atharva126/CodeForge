@@ -90,6 +90,7 @@ export default function OnlineInterview() {
     const partnerIdRef = useRef<string | null>(null);
     const localStreamRef = useRef<MediaStream | null>(null);
     const pendingCandidates = useRef<RTCIceCandidateInit[]>([]);
+    const isInterviewerRef = useRef(false);
 
     useEffect(() => {
         if (!roomId || !user || !isCallActive) return;
@@ -146,7 +147,7 @@ export default function OnlineInterview() {
 
             pc.onnegotiationneeded = async () => {
                 try {
-                    if (isInterviewer) {
+                    if (isInterviewerRef.current && partnerIdRef.current) {
                         console.log('📡 Signaling: Negotiation needed, sending offer...');
                         const offer = await pc.createOffer();
                         await pc.setLocalDescription(offer);
@@ -231,19 +232,35 @@ export default function OnlineInterview() {
         const handleRoomParticipants = async ({ participants }: any) => {
             const myId = socket.id;
             const others = participants.filter((p: string) => p !== myId);
-            partnerIdRef.current = others[0] || null;
+            const newPartnerId = others[0] || null;
 
-            // Handled globally by onnegotiationneeded or role assignments
+            const partnerJoined = !partnerIdRef.current && newPartnerId;
+            partnerIdRef.current = newPartnerId;
+
+            // Trigger: Interviewer initiates offer when partner joins
+            if (isInterviewerRef.current && partnerJoined) {
+                console.log('📡 Signaling: Partner joined, initiating offer as Interviewer...');
+                const pc = createPC();
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                socket.emit('offer', { roomId, offer });
+            }
         };
 
         const handleRoleAssigned = async ({ role }: { role: 'interviewer' | 'candidate' }) => {
             console.log('📡 Signaling: Role assigned by server:', role);
             const isCaller = role === 'interviewer';
             setIsInterviewer(isCaller);
+            isInterviewerRef.current = isCaller;
 
-            // Re-check: If I was assigned interviewer and partner is already here, 
-            // the onnegotiationneeded or initial createPC inside handleOffer/handleRoomParticipants 
-            // should take over once tracks exist.
+            // Trigger: If assigned interviewer and partner already here, send offer
+            if (isCaller && partnerIdRef.current) {
+                console.log('📡 Signaling: Assigned Interviewer and partner present, initiating offer...');
+                const pc = createPC();
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                socket.emit('offer', { roomId, offer });
+            }
         };
 
         const startFlow = async () => {
