@@ -488,18 +488,27 @@ export default function OnlineInterview() {
     useEffect(() => {
         if (!roomId || !excalidrawAPI) return;
 
+        console.log('🎨 Whiteboard: Setting up sync for room:', roomId);
         const yArray = yDocRef.current.getArray('excalidraw-elements');
 
-        const handleYArrayChange = () => {
+        const handleYArrayChange = (event: Y.YArrayEvent<any>) => {
             if (isSyncingRef.current) return;
+
+            // If the transaction originated locally, don't update the scene again
+            if (event.transaction.local) return;
+
             isSyncingRef.current = true;
             try {
                 const elements = yArray.toArray() as any[];
-                if (elements.length > 0) {
-                    excalidrawAPI.updateScene({ elements });
-                }
+                console.log(`🎨 Whiteboard: Received remote update (${elements.length} elements)`);
+                excalidrawAPI.updateScene({ elements });
+            } catch (err) {
+                console.error('🎨 Whiteboard: Failed to update scene', err);
             } finally {
-                isSyncingRef.current = false;
+                // Small delay to ensure Excalidraw's internal state catches up
+                setTimeout(() => {
+                    isSyncingRef.current = false;
+                }, 50);
             }
         };
 
@@ -508,26 +517,40 @@ export default function OnlineInterview() {
         // Initial load
         const elements = yArray.toArray();
         if (elements.length > 0) {
+            console.log(`🎨 Whiteboard: Performing initial load (${elements.length} elements)`);
             excalidrawAPI.updateScene({ elements });
         }
 
         return () => {
+            console.log('🎨 Whiteboard: Cleaning up sync observer');
             yArray.unobserve(handleYArrayChange);
         };
     }, [roomId, excalidrawAPI]);
 
-    const handleExcalidrawChange = debounce((elements: readonly any[]) => {
+    // Debounced sync function to push local changes to Yjs
+    const debouncedSyncToYjs = useRef(
+        debounce((elements: any[]) => {
+            if (!roomId) return;
+            const yArray = yDocRef.current.getArray('excalidraw-elements');
+
+            yDocRef.current.transact(() => {
+                // Only update if there's actually a change to push
+                // This is a naive implementation; 
+                // In a production app we would compare versions or use a more structured Yjs type
+                yArray.delete(0, yArray.length);
+                yArray.push(elements);
+            });
+            console.log(`🎨 Whiteboard: Pushed ${elements.length} elements to Yjs`);
+        }, 200)
+    ).current;
+
+    const handleExcalidrawChange = (elements: readonly any[]) => {
+        // Essential guard: don't push changes that were triggered by a remote sync
         if (isSyncingRef.current || !roomId) return;
 
-        const yArray = yDocRef.current.getArray('excalidraw-elements');
-
-        yDocRef.current.transact(() => {
-            // Very simple sync logic: replace all elements
-            // In a production app with huge drawings, we would use a more granular diff
-            yArray.delete(0, yArray.length);
-            yArray.push(elements as any[]);
-        });
-    }, 150);
+        // Push local changes to the shared Yjs document
+        debouncedSyncToYjs(elements as any[]);
+    };
 
 
 
@@ -536,17 +559,28 @@ export default function OnlineInterview() {
 
         // Isolate Whiteboard Room to avoid conflicts
         const whiteboardRoomId = `${roomId}-whiteboard`;
+        console.log('🎨 Whiteboard: Connecting provider to room:', whiteboardRoomId);
+
         const provider = new SocketIOProvider(getSocketURL(), whiteboardRoomId, yDocRef.current, { autoConnect: true });
         providerRef.current = provider;
 
+        provider.on('status', ({ status }: any) => {
+            console.log(`🎨 Whiteboard: Provider status: ${status}`);
+        });
+
         provider.on('sync', (isSynced: boolean) => {
-            if (isSynced && (window as any).syncWhiteboard) {
-                console.log('🎨 Whiteboard: Synced with server, performing initial load...');
-                (window as any).syncWhiteboard();
+            console.log(`🎨 Whiteboard: Sync state: ${isSynced}`);
+            if (isSynced && excalidrawAPI) {
+                const yArray = yDocRef.current.getArray('excalidraw-elements');
+                const elements = yArray.toArray();
+                if (elements.length > 0) {
+                    console.log('🎨 Whiteboard: Provider synced, updating scene...');
+                    excalidrawAPI.updateScene({ elements });
+                }
             }
         });
 
-        addTerminalMessage({ type: 'system', message: '🎨 Whiteboard: Initializing high-performance canvas...' });
+        addTerminalMessage({ type: 'system', message: '🎨 Whiteboard: Connecting collaboration engine...' });
 
         socket.on('problem-pushed', (problem) => {
             setCurrentProblem(problem);
@@ -565,10 +599,12 @@ export default function OnlineInterview() {
         });
 
         return () => {
+            console.log('🎨 Whiteboard: Disconnecting provider');
+            provider.disconnect();
             socket.off('problem-pushed');
             socket.off('execution-result');
         };
-    }, [roomId, user]);
+    }, [roomId, user, excalidrawAPI]);
 
     const handleRun = async () => {
         if (!currentProblem) return;
