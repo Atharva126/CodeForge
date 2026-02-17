@@ -144,14 +144,26 @@ export default function OnlineInterview() {
                 if (stream) setRemoteStream(stream);
             };
 
+            pc.onnegotiationneeded = async () => {
+                try {
+                    if (isInterviewer) {
+                        console.log('📡 Signaling: Negotiation needed, sending offer...');
+                        const offer = await pc.createOffer();
+                        await pc.setLocalDescription(offer);
+                        socket.emit('offer', { roomId, offer });
+                    }
+                } catch (err) {
+                    console.error('Negotiation error:', err);
+                }
+            };
+
             pc.onconnectionstatechange = () => {
                 console.log("🎬 Media: Connection State:", pc.connectionState);
                 if (pc.connectionState === 'connected') {
                     addTerminalMessage({ type: 'system', message: '🤝 Connection: Established!' });
                 } else if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
                     if (isCallActive) {
-                        addTerminalMessage({ type: 'system', message: '⚠️ Connection: Lost. Attempting auto-reconnect...' });
-                        (window as any).reconnectCall?.();
+                        console.log('📡 Signaling: Connection shaky/lost, state:', pc.connectionState);
                     }
                 }
             };
@@ -219,19 +231,9 @@ export default function OnlineInterview() {
         const handleRoomParticipants = async ({ participants }: any) => {
             const myId = socket.id;
             const others = participants.filter((p: string) => p !== myId);
-            const newPartnerId = others[0] || null;
+            partnerIdRef.current = others[0] || null;
 
-            const partnerJoined = !partnerIdRef.current && newPartnerId;
-            partnerIdRef.current = newPartnerId;
-
-            // CRITICAL: If I am the interviewer and a partner just joined, send offer
-            if (isInterviewer && partnerJoined) {
-                console.log('📡 Signaling: Partner joined, initiating offer as Interviewer...');
-                const pc = createPC();
-                const offer = await pc.createOffer();
-                await pc.setLocalDescription(offer);
-                socket.emit('offer', { roomId, offer });
-            }
+            // Handled globally by onnegotiationneeded or role assignments
         };
 
         const handleRoleAssigned = async ({ role }: { role: 'interviewer' | 'candidate' }) => {
@@ -239,14 +241,9 @@ export default function OnlineInterview() {
             const isCaller = role === 'interviewer';
             setIsInterviewer(isCaller);
 
-            // Re-check: If I was assigned interviewer and partner is already here, send offer
-            if (isCaller && partnerIdRef.current) {
-                console.log('📡 Signaling: Assigned Interviewer and partner present, initiating offer...');
-                const pc = createPC();
-                const offer = await pc.createOffer();
-                await pc.setLocalDescription(offer);
-                socket.emit('offer', { roomId, offer });
-            }
+            // Re-check: If I was assigned interviewer and partner is already here, 
+            // the onnegotiationneeded or initial createPC inside handleOffer/handleRoomParticipants 
+            // should take over once tracks exist.
         };
 
         const startFlow = async () => {
@@ -500,16 +497,19 @@ export default function OnlineInterview() {
             try {
                 store.mergeRemoteChanges(() => {
                     event.changes.keys.forEach((change, id) => {
+                        const record = yMap.get(id);
                         if (change.action === 'add' || change.action === 'update') {
-                            const record = yMap.get(id);
                             if (record) store.put([record as any]);
                         } else if (change.action === 'delete') {
                             store.remove([id as any]);
                         }
                     });
                 });
+            } catch (err) {
+                console.error('🎨 Whiteboard: Sync error:', err);
             } finally {
-                isSyncingRef.current = false;
+                // Delay lifting the guard slightly to allow Tldraw to settle
+                setTimeout(() => { isSyncingRef.current = false; }, 50);
             }
         };
 
