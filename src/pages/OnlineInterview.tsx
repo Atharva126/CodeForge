@@ -26,6 +26,7 @@ import { io } from 'socket.io-client';
 import * as Y from 'yjs';
 import { SocketIOProvider } from 'y-socket.io';
 import { Excalidraw } from '@excalidraw/excalidraw';
+import "@excalidraw/excalidraw/index.css";
 import debounce from 'lodash.debounce';
 import CollaborativeEditor from '../components/workspace/CollaborativeEditor';
 import { useAuth } from '../contexts/AuthContext';
@@ -686,7 +687,7 @@ export default function OnlineInterview() {
                                         </button>
                                     </div>
 
-                                    <div className="flex-1 overflow-y-auto p-6">
+                                    <div className={`flex-1 overflow-y-auto ${leftPanelMode === 'whiteboard' ? 'p-0' : 'p-6'}`}>
                                         {leftPanelMode === 'description' ? (
                                             currentProblem ? (
                                                 <div className="space-y-6">
@@ -720,8 +721,19 @@ export default function OnlineInterview() {
                                                 </div>
                                             )
                                         ) : (
-                                            <div className="h-full min-h-0 bg-[#0d0d0d] relative flex flex-col overflow-hidden border border-white/5 rounded-2xl">
-                                                <div className="flex-1 relative h-full w-full min-h-[400px]">
+                                            /* Higher performance container for Excalidraw */
+                                            <div className="h-full w-full bg-[#121212] relative overflow-hidden flex flex-col">
+                                                <div className="flex-1 w-full h-full relative" id="excalidraw-wrapper">
+                                                    <style>{`
+                                                        #excalidraw-wrapper .excalidraw {
+                                                            height: 100% !important;
+                                                            width: 100% !important;
+                                                        }
+                                                        /* Prevent sidebar conflicts with excalidraw toolbar */
+                                                        .excalidraw .App-menu_top {
+                                                            padding-top: 8px;
+                                                        }
+                                                    `}</style>
                                                     <Excalidraw
                                                         excalidrawAPI={(api: any) => setExcalidrawAPI(api)}
                                                         onChange={handleExcalidrawChange}
