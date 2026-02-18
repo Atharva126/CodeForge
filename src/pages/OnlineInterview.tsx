@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useDragControls } from 'framer-motion';
 import { Panel, Group, Separator } from 'react-resizable-panels';
 import {
     Code,
@@ -11,9 +11,7 @@ import {
     Video,
     VideoOff,
     Search,
-    LayoutGrid,
     CheckCircle2,
-    LogOut,
     ScreenShare,
     FileText
 } from 'lucide-react';
@@ -25,6 +23,8 @@ import debounce from 'lodash.debounce';
 import CollaborativeEditor from '../components/workspace/CollaborativeEditor';
 import { useAuth } from '../contexts/AuthContext';
 import { ENV_CONFIG } from '../env_config';
+import OnlineJudge from '../services/OnlineJudge';
+import "@excalidraw/excalidraw/index.css";
 
 const problemsData = [
     {
@@ -35,6 +35,51 @@ const problemsData = [
         description: 'Given an array of integers nums and an integer target, return indices of the two numbers such that they add up to target.',
         exampleInput: 'nums = [2,7,11,15], target = 9',
         exampleOutput: '[0, 1]'
+    },
+    {
+        id: 'palindrome-number',
+        title: 'Palindrome Number',
+        difficulty: 'Easy',
+        category: 'Math',
+        description: 'Given an integer x, return true if x is a palindrome, and false otherwise.',
+        exampleInput: 'x = 121',
+        exampleOutput: 'true'
+    },
+    {
+        id: 'valid-parentheses',
+        title: 'Valid Parentheses',
+        difficulty: 'Easy',
+        category: 'Stacks',
+        description: 'Given a string s containing just the characters "(", ")", "{", "}", "[" and "]", determine if the input string is valid.',
+        exampleInput: 's = "()"',
+        exampleOutput: 'true'
+    },
+    {
+        id: 'reverse-linked-list',
+        title: 'Reverse Linked List',
+        difficulty: 'Easy',
+        category: 'Linked Lists',
+        description: 'Given the head of a singly linked list, reverse the list, and return the reversed list.',
+        exampleInput: 'head = [1,2,3,4,5]',
+        exampleOutput: '[5,4,3,2,1]'
+    },
+    {
+        id: 'valid-anagram',
+        title: 'Valid Anagram',
+        difficulty: 'Easy',
+        category: 'Strings',
+        description: 'Given two strings s and t, return true if t is an anagram of s, and false otherwise.',
+        exampleInput: 's = "anagram", t = "nagaram"',
+        exampleOutput: 'true'
+    },
+    {
+        id: 'max-subarray',
+        title: 'Maximum Subarray',
+        difficulty: 'Medium',
+        category: 'Dynamic Programming',
+        description: 'Find the contiguous subarray (containing at least one number) which has the largest sum and return its sum.',
+        exampleInput: 'nums = [-2,1,-3,4,-1,2,1,-5,4]',
+        exampleOutput: '6'
     }
 ];
 
@@ -55,7 +100,6 @@ export default function OnlineInterview() {
     const { user } = useAuth();
 
     const [activeTab, setActiveTab] = useState<'problem' | 'whiteboard' | 'chat' | 'insights'>('problem');
-    const [isMediaDockMinimized, setIsMediaDockMinimized] = useState(false);
     const [currentProblem, setCurrentProblem] = useState<any>(problemsData[0]);
     const [terminalOutput, setTerminalOutput] = useState<any[]>([]);
 
@@ -68,7 +112,15 @@ export default function OnlineInterview() {
     const [searchQuery, setSearchQuery] = useState('');
     const [isCallActive, setIsCallActive] = useState(true);
     const [isRunning, setIsRunning] = useState(false);
+    const [code, setCode] = useState('');
     const [isJitsiLoaded, setIsJitsiLoaded] = useState(!!(window as any).JitsiMeetExternalAPI);
+
+    const [videoSize, setVideoSize] = useState({ width: '35vw', height: '45vh' });
+    const [videoPos, setVideoPos] = useState({ x: window.innerWidth * 0.62, y: window.innerHeight * 0.48 });
+    const [isResizing, setIsResizing] = useState(false);
+    const [isVideoMaximized, setIsVideoMaximized] = useState(false);
+    const dragControls = useDragControls();
+    const workspaceRef = useRef<HTMLDivElement>(null);
 
     const terminalEndRef = useRef<HTMLDivElement>(null);
 
@@ -86,7 +138,8 @@ export default function OnlineInterview() {
 
     // Diagnostic Pulse to verify latest code
     useEffect(() => {
-        addTerminalMessage({ type: 'system', message: '🧠 Neural_Link: Phase 2 Protocol Active [v2.1]' });
+        addTerminalMessage({ type: 'system', message: '🧠 Neural_Link: Collaboration Master [v3.0-Master] Active' });
+        console.log('🚀 SYSTEM: OnlineInterview [v3.0-Master] Initialized.');
     }, [addTerminalMessage]);
 
     const copyInviteLink = () => {
@@ -99,7 +152,7 @@ export default function OnlineInterview() {
     };
 
     const [jitsiApi, setJitsiApi] = useState<any>(null);
-    const jitsiContainerRef = useRef<HTMLDivElement>(null);
+    const [jitsiContainer, setJitsiContainer] = useState<HTMLDivElement | null>(null);
 
     const toggleAudio = useCallback(() => {
         if (jitsiApi) {
@@ -115,106 +168,98 @@ export default function OnlineInterview() {
         }
     }, [jitsiApi, isVideoOff]);
 
-    // Dynamic Script Injection & Polling for Jitsi API
+    // 1. Simplified Jitsi Loader: Leverage index.html script or inject if missing
     useEffect(() => {
-        if (isJitsiLoaded) return;
-
-        // 1. Check if already present
-        if ((window as any).JitsiMeetExternalAPI) {
-            setIsJitsiLoaded(true);
-            return;
-        }
-
-        // 2. Inject script if not found in document
-        const existingScript = document.querySelector('script[src*="meet.jit.si/external_api.js"]');
-        if (!existingScript) {
-            console.log('🎬 Jitsi: Injecting script tag dynamically...');
-            const script = document.createElement('script');
-            script.id = "jitsi-external-api-loader";
-            script.src = "https://meet.jit.si/external_api.js";
-            script.async = true;
-            script.onload = () => {
-                console.log('🎬 Jitsi: Script loaded via dynamic injection');
-                setIsJitsiLoaded(true);
-            };
-            document.head.appendChild(script);
-        }
-
-        // 3. Polling backup with more frequent checks
-        const checkJitsi = setInterval(() => {
+        const checkJitsi = () => {
             if ((window as any).JitsiMeetExternalAPI) {
-                console.log('🎬 Jitsi: API detected via polling @ ' + new Date().toLocaleTimeString());
-                setIsJitsiLoaded(true);
-                clearInterval(checkJitsi);
+                console.log('🎬 Jitsi: API detected');
+                if (!isJitsiLoaded) setIsJitsiLoaded(true);
+                return true;
             }
-        }, 500);
+            return false;
+        };
 
-        return () => clearInterval(checkJitsi);
+        if (checkJitsi()) return;
+
+        const interval = setInterval(() => {
+            if (checkJitsi()) clearInterval(interval);
+        }, 1000);
+
+        return () => clearInterval(interval);
     }, [isJitsiLoaded]);
 
+    // 2. Jitsi Initialization Logic
     useEffect(() => {
-        if (!roomId || !user || !isCallActive || !jitsiContainerRef.current || jitsiApi || !isJitsiLoaded) {
-            if (!isJitsiLoaded && isCallActive && roomId) {
-                console.log('🎬 Jitsi: Waiting for script to load...');
-            }
+        // Critical: Only initialize if everything is ready
+        if (!roomId || !user?.email || !isCallActive || !jitsiContainer || jitsiApi || !isJitsiLoaded) {
             return;
         }
 
-        if (!(window as any).JitsiMeetExternalAPI) {
-            console.error('🎬 Jitsi: API still not found despite isJitsiLoaded being true');
-            return;
+        const userIdentifier = user.email;
+        addTerminalMessage({ type: 'system', message: '🛠️ Jitsi: Spawning Integrated Video Link...' });
+        console.log('🎬 Jitsi: Spawning instance...', { roomId, user: userIdentifier, container: !!jitsiContainer });
+
+        try {
+            const domain = 'meet.jit.si';
+            const options = {
+                roomName: `codeforge-${roomId}-${ENV_CONFIG.VITE_COLLAB_SERVER_URL ? 'prod' : 'dev'}`,
+                width: '100%',
+                height: '100%',
+                parentNode: jitsiContainer,
+                userInfo: {
+                    displayName: userIdentifier.split('@')[0] || 'Anonymous'
+                },
+                configOverwrite: {
+                    startWithAudioMuted: false,
+                    startWithVideoMuted: false,
+                    prejoinPageEnabled: false,
+                    disableDeepLinking: true,
+                    p2p: { enabled: true }
+                },
+                interfaceConfigOverwrite: {
+                    TOOLBAR_BUTTONS: [
+                        'microphone', 'camera', 'fullscreen', 'fittowindow', 'hangup', 'chat', 'settings', 'videoquality'
+                    ],
+                    SETTINGS_SECTIONS: ['devices', 'language', 'profile'],
+                    SHOW_PROMOTIONAL_CLOSE_PAGE: false,
+                    RECENT_LIST_ENABLED: false
+                }
+            };
+
+            const api = new (window as any).JitsiMeetExternalAPI(domain, options);
+            setJitsiApi(api);
+
+            api.addEventListeners({
+                readyToClose: () => setIsCallActive(false),
+                videoConferenceJoined: () => {
+                    console.log('🎬 Jitsi: Joined successfully');
+                    addTerminalMessage({ type: 'system', message: '🤝 Jitsi: Tactical Video Link Operational.' });
+                },
+                participantJoined: (participant: any) => {
+                    addTerminalMessage({ type: 'system', message: `👤 Jitsi: Remote Signal Detected - ${participant.displayName}` });
+                },
+                videoConferenceLeft: () => {
+                    console.log('🎬 Jitsi: Conference left');
+                    setJitsiApi(null);
+                }
+            });
+
+            return () => {
+                console.log('🎬 Jitsi: Disposing instance');
+                api.dispose();
+                setJitsiApi(null);
+            };
+        } catch (err) {
+            console.error('🎬 Jitsi: Fatal initialization error:', err);
+            addTerminalMessage({ type: 'error', message: '🚫 Jitsi: Integrated Link Failed to Mount.' });
         }
-
-        console.log('🎬 Jitsi: Initializing hub for room:', roomId);
-
-        const domain = 'meet.jit.si';
-        const options = {
-            roomName: `codeforge-${roomId}`,
-            width: '100%',
-            height: '100%',
-            parentNode: jitsiContainerRef.current,
-            userInfo: {
-                displayName: user.email?.split('@')[0] || 'Anonymous'
-            },
-            configOverwrite: {
-                startWithAudioMuted: false,
-                startWithVideoMuted: false,
-                prejoinPageEnabled: false,
-                disableDeepLinking: true
-            },
-            interfaceConfigOverwrite: {
-                TOOLBAR_BUTTONS: [
-                    'microphone', 'camera', 'fullscreen', 'fittowindow', 'hangup', 'chat', 'settings', 'videoquality'
-                ],
-                SETTINGS_SECTIONS: ['devices', 'language', 'profile'],
-                SHOW_PROMOTIONAL_CLOSE_PAGE: false
-            }
-        };
-
-        const api = new (window as any).JitsiMeetExternalAPI(domain, options);
-        setJitsiApi(api);
-
-        api.addEventListeners({
-            readyToClose: () => setIsCallActive(false),
-            videoConferenceJoined: () => {
-                addTerminalMessage({ type: 'system', message: '🤝 Connection: Jitsi Global SFU Established!' });
-            },
-            participantJoined: (participant: any) => {
-                addTerminalMessage({ type: 'system', message: `👤 Participant joined: ${participant.displayName}` });
-            }
-        });
-
-        return () => {
-            api.dispose();
-            setJitsiApi(null);
-        };
-    }, [roomId, user, isCallActive, jitsiApi, addTerminalMessage]);
+    }, [roomId, user?.email, isCallActive, isJitsiLoaded, jitsiContainer, addTerminalMessage]); // Removed jitsiApi here
 
     const [isInterviewer, setIsInterviewer] = useState(false);
     const isInterviewerRef = useRef(false);
 
     useEffect(() => {
-        if (!roomId || !user || !isCallActive) return;
+        if (!roomId || !user?.email || !isCallActive) return;
 
         const handleRoleAssigned = async ({ role }: { role: 'interviewer' | 'candidate' }) => {
             const isCaller = role === 'interviewer';
@@ -228,71 +273,59 @@ export default function OnlineInterview() {
         return () => {
             socket.off('role-assigned', handleRoleAssigned);
         };
-    }, [roomId, user, isCallActive]);
+    }, [roomId, user?.email, isCallActive]);
 
     const yDocRef = useRef<Y.Doc>(new Y.Doc());
     const providerRef = useRef<SocketIOProvider | null>(null);
     const [excalidrawAPI, setExcalidrawAPI] = useState<any>(null);
+    const isSyncingRef = useRef(false);
+    const hasLoadedInitialSync = useRef(false);
+    const isProviderSyncedRef = useRef(false);
+    const lastRemoteUpdateRef = useRef(0);
+    const entryTimestamp = useRef(Date.now());
 
+    // 1. Permanent Neural Link (Yjs Provider) - Stays active even if tab changes
     useEffect(() => {
-        if (!roomId || !excalidrawAPI) return;
+        if (!roomId || !user?.email) return;
 
-        const yArray = yDocRef.current.getArray('excalidraw-elements');
-        const handleYArrayChange = (event: Y.YArrayEvent<any>) => {
-            if (event.transaction.local) return;
-            try {
-                const elements = yArray.toArray() as any[];
-                excalidrawAPI.updateScene({ elements });
-            } catch (err) {
-                console.error('🎨 Whiteboard: Failed to update scene', err);
-            }
-        };
-
-        yArray.observe(handleYArrayChange);
-        const elements = yArray.toArray();
-        if (elements.length > 0) {
-            excalidrawAPI.updateScene({ elements });
-        }
-
-        return () => {
-            yArray.unobserve(handleYArrayChange);
-        };
-    }, [roomId, excalidrawAPI]);
-
-    const debouncedSyncToYjs = useRef(
-        debounce((elements: any[]) => {
-            if (!roomId) return;
-            const yArray = yDocRef.current.getArray('excalidraw-elements');
-            yDocRef.current.transact(() => {
-                yArray.delete(0, yArray.length);
-                yArray.push(elements);
-            });
-        }, 200)
-    ).current;
-
-    const handleExcalidrawChange = (elements: readonly any[]) => {
-        debouncedSyncToYjs(elements as any[]);
-    };
-
-    useEffect(() => {
-        if (!roomId || !user) return;
         const whiteboardRoomId = `${roomId}-whiteboard`;
+        console.log(`🎨 Canvas: Initializing Neural Link [${whiteboardRoomId}]`);
+
         const provider = new SocketIOProvider(getSocketURL(), whiteboardRoomId, yDocRef.current, { autoConnect: true });
         providerRef.current = provider;
 
         provider.on('sync', (isSynced: boolean) => {
-            if (isSynced && excalidrawAPI) {
-                const yArray = yDocRef.current.getArray('excalidraw-elements');
-                const elements = yArray.toArray();
-                if (elements.length > 0) {
-                    excalidrawAPI.updateScene({ elements });
-                }
+            if (isSynced) {
+                console.log('🎨 Canvas: Neural State Synchronized (Yjs).');
+                isProviderSyncedRef.current = true;
+                entryTimestamp.current = Date.now(); // Mark entry time
+                addTerminalMessage({ type: 'system', message: '🎨 Canvas: Neural Link Established.' });
+                // Request current problem state if we just synced
+                socket.emit('request-problem-state', { roomId });
             }
         });
 
+        provider.on('connection-error', (err: any) => {
+            console.error('🎨 Canvas: Neural Link Connection Error', err);
+            addTerminalMessage({ type: 'error', message: '🎨 Canvas: Neural Link Connection Error' });
+        });
+
+        // Handle other global socket events here to keep them stable
         socket.on('problem-pushed', (problem) => {
             setCurrentProblem(problem);
             addTerminalMessage({ type: 'system', message: `Problem pushed: ${problem.title}` });
+        });
+
+        socket.on('sync-problem-state', (problem) => {
+            if (problem && !currentProblem) {
+                setCurrentProblem(problem);
+            }
+        });
+
+        socket.on('request-problem-state', () => {
+            if (isInterviewerRef.current && currentProblem) {
+                socket.emit('sync-problem-state', { roomId, problem: currentProblem });
+            }
         });
 
         socket.on('execution-result', ({ userName, result }) => {
@@ -310,22 +343,167 @@ export default function OnlineInterview() {
             provider.disconnect();
             socket.off('problem-pushed');
             socket.off('execution-result');
+            socket.off('sync-problem-state');
+            socket.off('request-problem-state');
         };
-    }, [roomId, user, excalidrawAPI, addTerminalMessage]);
+    }, [roomId, user?.email, addTerminalMessage]);
+
+    // 2. Transient UI Bridge (Excalidraw <-> Yjs) - Only active when Whiteboard is mounted
+    useEffect(() => {
+        if (!excalidrawAPI) return;
+
+        console.log('🎨 Canvas: UI Bridge Mounted.');
+        const yMap = yDocRef.current.getMap('excalidraw-elements-map');
+
+        const handleYjsChange = (event: Y.YMapEvent<any>) => {
+            // 1. Ignore our own transactions
+            if (event.transaction.local) return;
+
+            // 2. Mark remote update time for echo-suppression
+            lastRemoteUpdateRef.current = Date.now();
+            isSyncingRef.current = true; // Temporary lock for updateScene
+
+            try {
+                const elements = Array.from(yMap.values());
+                console.log(`🎨 Canvas: Receipt [${elements.length} elements]`);
+
+                // Absolute Update
+                excalidrawAPI.updateScene({ elements });
+
+                if (!hasLoadedInitialSync.current) {
+                    hasLoadedInitialSync.current = true;
+                }
+            } catch (err) {
+                console.error('🎨 Canvas: Integration Error', err);
+            } finally {
+                // Release the lock almost immediately
+                setTimeout(() => { isSyncingRef.current = false; }, 50);
+            }
+        };
+
+        yMap.observe(handleYjsChange);
+
+        // Initial Scene Load - Slight delay to ensure API is ready
+        setTimeout(() => {
+            if (hasLoadedInitialSync.current) return; // Already loaded via observe
+            const elements = Array.from(yMap.values());
+            console.log('🎨 Canvas: Manual Initial Scene Load...', { elementCount: elements.length });
+            if (elements.length > 0) {
+                excalidrawAPI.updateScene({ elements });
+            }
+            hasLoadedInitialSync.current = true;
+            entryTimestamp.current = Date.now();
+        }, 1200);
+
+        return () => {
+            console.log('🎨 Canvas: UI Bridge Unmounting.');
+            yMap.unobserve(handleYjsChange);
+        };
+    }, [excalidrawAPI]);
+
+    const debouncedSyncToYjs = useRef(
+        debounce((elements: any[]) => {
+            // 1. Neural Handshake: Ignore changes shortly after receiving a remote update
+            // This prevents the "Echo Loop" without blocking real user drawing.
+            const timeSinceRemoteUpdate = Date.now() - lastRemoteUpdateRef.current;
+            if (timeSinceRemoteUpdate < 300) return;
+
+            // 2. State Readiness
+            if (!roomId || !isProviderSyncedRef.current || !hasLoadedInitialSync.current) return;
+
+            const yMap = yDocRef.current.getMap('excalidraw-elements-map');
+
+            yDocRef.current.transact(() => {
+                let changes = 0;
+                const timeSinceEntry = Date.now() - entryTimestamp.current;
+
+                // 3. Smart Recovery: If local is empty but remote has content, 
+                // and it's early in the session, FORCE a re-sync instead of wiping.
+                if (elements.length === 0 && yMap.size > 0 && timeSinceEntry < 10000) {
+                    console.log('🎨 Canvas: Smart Recovery Triggered (Preventing Wipe)');
+                    const remoteState = Array.from(yMap.values());
+                    excalidrawAPI.updateScene({ elements: remoteState });
+                    return;
+                }
+
+                // 4. Parity Update
+                elements.forEach(el => {
+                    const existing = yMap.get(el.id) as any;
+                    // Efficient comparison using version tags
+                    if (!existing || existing.version !== el.version || existing.isDeleted !== el.isDeleted) {
+                        yMap.set(el.id, el);
+                        changes++;
+                    }
+                });
+
+                // 5. Cleanup
+                if (elements.length > 0) {
+                    const localIds = new Set(elements.map(e => e.id));
+                    yMap.forEach((_, id) => {
+                        if (!localIds.has(id)) {
+                            yMap.delete(id);
+                            changes++;
+                        }
+                    });
+                }
+
+                if (changes > 0) {
+                    console.log(`🎨 Canvas: Propagation [${changes} elements]`);
+                }
+            });
+        }, 150)
+    ).current;
+
+    const handleExcalidrawChange = (elements: readonly any[]) => {
+        if (isSyncingRef.current) return;
+        debouncedSyncToYjs(elements as any[]);
+    };
 
     const handleRun = async () => {
-        if (!currentProblem) return;
+        if (!currentProblem || !user) return;
         setIsRunning(true);
-        const mockResult = {
-            testCases: [{ input: currentProblem.exampleInput, passed: true }]
-        };
-        setTimeout(() => {
+        addTerminalMessage({ type: 'system', message: '🚀 Execution_Link: Initializing Sandbox...' });
+
+        try {
+            const judge = OnlineJudge.getInstance();
+            const result = await judge.runCode({
+                language: 'javascript', // Default for now, can be expanded
+                code: code,
+                fnName: currentProblem.id === 'two-sum' ? 'twoSum' : 'solve',
+                testCases: [{
+                    input: currentProblem.exampleInput,
+                    expectedOutput: currentProblem.exampleOutput,
+                    isHidden: false
+                }],
+                timeLimit: 5000,
+                memoryLimit: 128
+            });
+
+            const testResults = result.status === 'Accepted'
+                ? [{ input: currentProblem.exampleInput, passed: true }]
+                : [{ input: currentProblem.exampleInput, passed: false }];
+
             socket.emit('code-execution', {
                 roomId,
-                userName: user?.email,
-                result: mockResult
+                userName: user.email,
+                result: { testCases: testResults }
             });
-        }, 1500);
+
+            if (result.status === 'Accepted') {
+                addTerminalMessage({ type: 'output', message: '✅ Success: All test cases passed Protocol_Verification.' });
+            } else {
+                addTerminalMessage({ type: 'error', message: `❌ Failed: ${result.error || result.status}` });
+                if (result.output) {
+                    addTerminalMessage({ type: 'output', message: `Actual: ${result.output}` });
+                }
+            }
+
+        } catch (err) {
+            console.error('Execution error:', err);
+            addTerminalMessage({ type: 'error', message: '🚫 Error: Execution Pipeline Breach.' });
+        } finally {
+            setIsRunning(false);
+        }
     };
 
     const handlePushProblem = (problem: any) => {
@@ -341,260 +519,315 @@ export default function OnlineInterview() {
         <div className="h-screen bg-[#020202] text-gray-400 flex flex-col overflow-hidden font-sans selection:bg-indigo-500/30 relative">
             {/* Immersive Environment Layer */}
             <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
-                <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(99,102,241,0.05),transparent_70%)]" />
+                <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_20%,rgba(99,102,241,0.08),transparent_70%)]" />
                 <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-indigo-500/20 to-transparent" />
-                <div className="absolute inset-0 opacity-[0.03]" style={{ backgroundImage: 'radial-gradient(#fff 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
-                <motion.div
-                    animate={{ opacity: [0.1, 0.15, 0.1], scale: [1, 1.1, 1] }}
-                    transition={{ duration: 10, repeat: Infinity, ease: "easeInOut" }}
-                    className="absolute -top-[20%] -left-[10%] w-[60%] h-[60%] bg-indigo-500/10 blur-[120px] rounded-full"
-                />
-                <motion.div
-                    animate={{ opacity: [0.05, 0.1, 0.05], scale: [1, 1.2, 1] }}
-                    transition={{ duration: 15, repeat: Infinity, ease: "easeInOut", delay: 2 }}
-                    className="absolute -bottom-[20%] -right-[10%] w-[50%] h-[50%] bg-violet-500/10 blur-[120px] rounded-full"
-                />
             </div>
 
-            {/* Cinematic Top Navigation */}
-            <header className="h-16 bg-black/40 backdrop-blur-2xl border-b border-white/5 flex items-center justify-between px-8 z-40 shrink-0 relative">
-                <div className="flex items-center gap-6">
-                    <div className="flex items-center gap-4">
-                        <div className="relative">
-                            <div className="absolute inset-0 bg-indigo-500 blur-md opacity-20 animate-pulse" />
-                            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-indigo-500 via-indigo-600 to-violet-600 flex items-center justify-center shadow-lg relative z-10 border border-white/20">
-                                <Code className="w-6 h-6 text-white" />
-                            </div>
-                        </div>
-                        <div className="flex flex-col">
-                            <div className="flex items-center gap-2">
-                                <span className="text-white text-sm font-black tracking-tighter uppercase italic">CodeForge</span>
-                                <div className="px-1.5 py-0.5 rounded-md bg-indigo-500/10 border border-indigo-500/20">
-                                    <span className="text-[8px] text-indigo-400 font-black uppercase tracking-widest">Live_Protocol</span>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-2 mt-0.5">
-                                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                <span className="text-[9px] text-gray-500 font-bold uppercase tracking-[0.2em]">{roomId} // NODE_SECURE</span>
-                            </div>
-                        </div>
+            {/* Nexus Header - Ultra Streamlined */}
+            <header className="h-14 bg-black/40 backdrop-blur-3xl border-b border-white/5 flex items-center justify-between px-8 z-40 shrink-0 relative">
+                <div className="flex items-center gap-4">
+                    <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-lg border border-white/20">
+                        <Code className="w-5 h-5 text-white" />
                     </div>
-
-                    <div className="h-8 w-[1px] bg-white/5 mx-2" />
-
-                    <div onClick={copyInviteLink} className="flex items-center gap-3 px-4 py-2 bg-white/5 hover:bg-white/10 rounded-2xl border border-white/5 transition-all cursor-pointer group hover:scale-105">
-                        <UsersIcon className="w-4 h-4 text-indigo-400 group-hover:rotate-12 transition-transform" />
-                        <div className="flex flex-col">
-                            <span className="text-[9px] text-gray-500 font-black uppercase tracking-widest">Connection_ID</span>
-                            <span className="text-[10px] text-white font-bold font-mono">{roomId}</span>
-                        </div>
-                        {showCopied && <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }}><CheckCircle2 className="w-4 h-4 text-green-500" /></motion.div>}
+                    <div className="flex flex-col">
+                        <span className="text-white text-[11px] font-black tracking-tight uppercase italic">Nexus_Protocol</span>
+                        <span className="text-[8px] text-gray-500 font-bold uppercase tracking-widest leading-none">Node: {roomId?.slice(0, 8)}</span>
                     </div>
                 </div>
 
-                <div className="flex items-center gap-4">
-                    <div className="flex flex-col items-end">
-                        <span className="text-[9px] text-gray-500 font-black uppercase tracking-widest">Active_Profile</span>
-                        <div className={`flex items-center gap-2 px-3 py-1 rounded-xl border transition-all mt-0.5 ${isInterviewer ? 'bg-violet-500/10 text-violet-400 border-violet-500/20' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'}`}>
-                            <div className={`w-1 h-1 rounded-full ${isInterviewer ? 'bg-violet-400' : 'bg-emerald-400'} animate-pulse`} />
-                            <span className="text-[10px] font-black uppercase tracking-widest">{isInterviewer ? 'Protocol_Host' : 'Subject_Candidate'}</span>
-                        </div>
+                <div className="flex items-center gap-6">
+                    <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/[0.03] border border-white/5 hover:bg-white/5 transition-all cursor-pointer group" onClick={copyInviteLink}>
+                        <UsersIcon className="w-3.5 h-3.5 text-indigo-400" />
+                        <span className="text-[9px] font-black text-gray-400 uppercase tracking-widest">Share_Link</span>
+                        {showCopied && <CheckCircle2 className="w-3 h-3 text-green-500 ml-1" />}
                     </div>
 
-                    <div className="h-8 w-[1px] bg-white/5 mx-2" />
-
-                    <button onClick={() => navigate('/')} className="group relative px-6 py-2.5 rounded-2xl overflow-hidden transition-all bg-red-500/10 border border-red-500/20 hover:bg-red-500 hover:border-red-400">
-                        <div className="relative z-10 flex items-center gap-3">
-                            <LogOut className="w-4 h-4 text-red-400 group-hover:text-white transition-colors" />
-                            <span className="text-[10px] text-red-400 group-hover:text-white font-black uppercase tracking-widest transition-colors">Terminate_Session</span>
-                        </div>
-                    </button>
+                    <div className={`flex items-center gap-2 px-3 py-1 rounded-full border transition-all ${isInterviewer ? 'bg-violet-500/10 text-violet-400 border-violet-500/20' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'}`}>
+                        <div className={`w-1 h-1 rounded-full ${isInterviewer ? 'bg-violet-400' : 'bg-emerald-400'} animate-pulse`} />
+                        <span className="text-[9px] font-black uppercase tracking-widest">{isInterviewer ? 'Host' : 'Candidate'}</span>
+                    </div>
                 </div>
             </header>
 
-            <div className="flex-1 flex overflow-hidden relative z-10">
-                <nav className="w-20 bg-black/20 backdrop-blur-3xl border-r border-white/5 flex flex-col items-center py-8 gap-6 z-40 shrink-0">
-                    <button onClick={() => setActiveTab('problem')} className={`p-4 rounded-3xl transition-all relative group overflow-hidden ${activeTab === 'problem' ? 'bg-indigo-500 text-white shadow-[0_0_20px_rgba(99,102,241,0.4)]' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}>
-                        <FileText className="w-6 h-6 relative z-10" />
-                        {activeTab === 'problem' && <motion.div layoutId="activeTabGlow" className="absolute inset-0 bg-gradient-to-tr from-white/20 to-transparent" />}
-                        <motion.div className="absolute inset-0 bg-indigo-400 opacity-0 group-hover:opacity-10 transition-opacity" />
-                    </button>
-                    <button onClick={() => setActiveTab('whiteboard')} className={`p-4 rounded-3xl transition-all relative group overflow-hidden ${activeTab === 'whiteboard' ? 'bg-indigo-500 text-white shadow-[0_0_20px_rgba(99,102,241,0.4)]' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}>
-                        <LayoutGrid className="w-6 h-6 relative z-10" />
-                        {activeTab === 'whiteboard' && <motion.div layoutId="activeTabGlow" className="absolute inset-0 bg-gradient-to-tr from-white/20 to-transparent" />}
-                        <motion.div className="absolute inset-0 bg-indigo-400 opacity-0 group-hover:opacity-10 transition-opacity" />
-                    </button>
-                    <button onClick={() => setActiveTab('insights')} className={`p-4 rounded-3xl transition-all relative group overflow-hidden ${activeTab === 'insights' ? 'bg-indigo-500 text-white shadow-[0_0_20px_rgba(99,102,241,0.4)]' : 'text-gray-500 hover:text-white hover:bg-white/5'}`}>
-                        <Activity className="w-6 h-6 relative z-10" />
-                        {activeTab === 'insights' && <motion.div layoutId="activeTabGlow" className="absolute inset-0 bg-gradient-to-tr from-white/20 to-transparent" />}
-                        <motion.div className="absolute inset-0 bg-indigo-400 opacity-0 group-hover:opacity-10 transition-opacity" />
-                    </button>
-                </nav>
+            <main className="flex-1 overflow-hidden relative z-10">
+                <Group orientation="horizontal">
+                    {/* Integrated Tactical Sidebar (Now Left) */}
+                    <Panel defaultSize={28} minSize={20} className="bg-[#050505] border-r border-white/5">
+                        <div className="h-full flex flex-col bg-white/[0.01]">
+                            <div className="flex h-12 border-b border-white/5 shrink-0 z-[40] bg-[#050505] relative shadow-lg">
+                                <button onClick={() => setActiveTab('problem')} className={`flex-1 text-[9px] font-black uppercase tracking-widest transition-all relative z-10 ${activeTab === 'problem' ? 'text-white' : 'text-gray-500 hover:text-gray-300'}`}>
+                                    Problem
+                                    {activeTab === 'problem' && <motion.div layoutId="tabActive" className="absolute bottom-0 left-4 right-4 h-0.5 bg-indigo-500" />}
+                                </button>
+                                <button onClick={() => setActiveTab('whiteboard')} className={`flex-1 text-[9px] font-black uppercase tracking-widest transition-all relative z-10 ${activeTab === 'whiteboard' ? 'text-white' : 'text-gray-500 hover:text-gray-300'}`}>
+                                    Canvas
+                                    {activeTab === 'whiteboard' && <motion.div layoutId="tabActive" className="absolute bottom-0 left-4 right-4 h-0.5 bg-indigo-500" />}
+                                </button>
+                                {isInterviewer && (
+                                    <button onClick={() => setActiveTab('chat')} className={`flex-1 text-[9px] font-black uppercase tracking-widest transition-all relative z-10 ${activeTab === 'chat' ? 'text-white' : 'text-gray-500 hover:text-gray-300'}`}>
+                                        Notes
+                                        {activeTab === 'chat' && <motion.div layoutId="tabActive" className="absolute bottom-0 left-4 right-4 h-0.5 bg-indigo-500" />}
+                                    </button>
+                                )}
+                            </div>
 
-                <div className="flex-1 flex overflow-hidden">
-                    <Group orientation="horizontal">
-                        <Panel defaultSize={22} minSize={15} className="bg-black/10 backdrop-blur-md">
-                            <div className="h-full flex flex-col border-r border-white/5 relative">
-                                <div className="h-14 flex items-center px-8 border-b border-white/5 bg-white/[0.02]">
-                                    <span className="text-[10px] font-black uppercase tracking-[0.3em] text-gray-400">{activeTab.toUpperCase()}</span>
-                                </div>
-                                <div className="flex-1 overflow-auto p-8 custom-scrollbar">
+                            <div className="flex-1 relative overflow-hidden bg-black/40">
+                                {/* Tab Content Layer (Problem & Notes) */}
+                                <div className={`h-full overflow-auto custom-scrollbar p-6 relative transition-all duration-300 ${activeTab === 'whiteboard' ? 'opacity-0 pointer-events-none z-0' : 'opacity-100 z-[30]'}`}>
                                     <AnimatePresence mode="wait">
                                         {activeTab === 'problem' && (
-                                            <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }} className="space-y-8">
-                                                {currentProblem ? (
-                                                    <div className="space-y-6">
-                                                        <h2 className="text-2xl font-black text-white italic">{currentProblem.title}</h2>
-                                                        <div className="p-6 rounded-2xl bg-white/[0.02] border border-white/5 text-sm leading-relaxed">{currentProblem.description}</div>
-                                                        <div className="space-y-4">
-                                                            <div className="p-4 rounded-xl bg-black/40 border border-white/5">
-                                                                <div className="text-[10px] font-black text-indigo-400 mb-2">// INPUT</div>
-                                                                <code className="text-xs text-white font-mono">{currentProblem.exampleInput}</code>
-                                                            </div>
-                                                            <div className="p-4 rounded-xl bg-black/40 border border-white/5">
-                                                                <div className="text-[10px] font-black text-emerald-400 mb-2">// OUTPUT</div>
-                                                                <code className="text-xs text-white font-mono">{currentProblem.exampleOutput}</code>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                ) : (
-                                                    <div className="h-full flex items-center justify-center opacity-20 text-[10px] font-black uppercase tracking-widest text-center">Standby...</div>
+                                            <motion.div key="problem-tab" initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} className="space-y-6 relative">
+                                                <div className="flex items-center justify-between">
+                                                    <h3 className="text-lg font-black text-white italic tracking-tight">{currentProblem?.title}</h3>
+                                                    <div className="px-3 py-1 rounded-md bg-white/5 border border-white/10 text-[8px] font-black text-gray-500 uppercase tracking-widest">{currentProblem?.difficulty}</div>
+                                                </div>
+                                                <p className="text-[11px] leading-relaxed text-gray-400 bg-white/[0.02] p-6 rounded-3xl border border-white/5 italic">
+                                                    {currentProblem?.description}
+                                                </p>
+                                                <div className="space-y-4">
+                                                    <div className="text-[10px] font-black text-indigo-400 uppercase tracking-[0.2em] mb-1 opacity-50">// System_Protocol_Params</div>
+                                                    <pre className="text-[10px] bg-black/60 border border-white/5 p-6 rounded-2xl font-mono text-indigo-300 overflow-x-auto shadow-inner">
+                                                        {currentProblem?.exampleInput}
+                                                    </pre>
+                                                </div>
+                                                {isInterviewer && (
+                                                    <button
+                                                        onClick={() => setShowProblemSelector(true)}
+                                                        className="w-full h-14 rounded-3xl bg-white/5 border border-white/10 text-white text-[10px] font-black uppercase tracking-[0.2em] hover:bg-white/10 hover:border-indigo-500/30 transition-all mt-6 shadow-xl relative z-[50]"
+                                                    >
+                                                        Change_Protocol
+                                                    </button>
                                                 )}
                                             </motion.div>
                                         )}
-                                        {activeTab === 'whiteboard' && (
-                                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full w-full bg-[#111] overflow-hidden">
-                                                {/* @ts-ignore */}
-                                                <Excalidraw theme="dark" onChange={handleExcalidrawChange} onMount={(api) => setExcalidrawAPI(api)} />
-                                            </motion.div>
-                                        )}
-                                        {activeTab === 'insights' && (
-                                            <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
-                                                <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/5 flex justify-between items-center">
-                                                    <span className="text-[9px] font-black text-gray-500 uppercase">Alignment</span>
-                                                    <span className="text-[10px] font-black text-emerald-400">98.4%</span>
-                                                </div>
+                                        {activeTab === 'chat' && isInterviewer && (
+                                            <motion.div key="notes-tab" initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} className="flex flex-col h-full space-y-4 relative z-10">
+                                                <div className="text-[9px] font-black text-gray-500 uppercase tracking-widest">// Private_Observation_Log</div>
+                                                <textarea
+                                                    value={interviewerNotes}
+                                                    onChange={(e) => setInterviewerNotes(e.target.value)}
+                                                    placeholder="Enter subject assessment..."
+                                                    className="flex-1 w-full bg-black/40 border border-white/5 rounded-2xl p-5 text-[11px] text-gray-300 resize-none focus:outline-none focus:border-indigo-500/40 font-medium placeholder:text-gray-700 custom-scrollbar"
+                                                />
+                                                <button className="w-full h-12 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white text-[10px] font-black uppercase tracking-[0.2em] shadow-lg shadow-indigo-500/10 hover:scale-[1.02] active:scale-95 transition-all relative z-20">Commit_Intel</button>
                                             </motion.div>
                                         )}
                                     </AnimatePresence>
                                 </div>
-                            </div>
-                        </Panel>
-
-                        <Separator className="w-[1px] bg-white/5" />
-
-                        <Panel defaultSize={53} minSize={40} className="relative bg-black/40">
-                            <div className="h-full flex flex-col">
-                                <div className="h-14 flex items-center justify-between px-8 border-b border-white/5 bg-white/[0.02]">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
-                                        <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white">Execution_Unit.bin</span>
-                                    </div>
-                                    <button onClick={handleRun} disabled={isRunning} className="px-5 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-black uppercase tracking-widest hover:bg-emerald-500 hover:text-white transition-all">
-                                        {isRunning ? 'Executing...' : 'Run_Sequence'}
-                                    </button>
-                                </div>
-                                <div className="flex-1 overflow-hidden">
-                                    <CollaborativeEditor
-                                        roomId={roomId || ''}
-                                        userName={user?.email || 'Anonymous'}
-                                        userColor="#8b5cf6"
-                                        language="javascript"
-                                        onLanguageChange={() => { }}
-                                    />
-                                </div>
-                                <div className="h-48 border-t border-white/5 bg-black/60 p-6 font-mono text-[11px] overflow-auto custom-scrollbar">
-                                    {terminalOutput.map((log, i) => (
-                                        <div key={i} className={`mb-1 ${log.type === 'error' ? 'text-red-400' : log.type === 'system' ? 'text-indigo-400' : 'text-emerald-400'}`}>
-                                            <span className="opacity-50">{">>"}</span> {log.message}
-                                        </div>
-                                    ))}
-                                    <div ref={terminalEndRef} />
-                                </div>
-                            </div>
-                        </Panel>
-
-                        <Separator className="w-[1px] bg-white/5" />
-
-                        <Panel defaultSize={25} minSize={20} className="bg-black/10 backdrop-blur-md">
-                            <div className="h-full flex flex-col p-6 space-y-6">
-                                <div className="flex items-center justify-between">
-                                    <span className="text-[10px] font-black uppercase tracking-widest text-gray-500 italic">Tactical_Intel</span>
-                                    <div className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 text-[8px] font-black">
-                                        <div className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse" />CONNECTED
+                                {/* Persistent Whiteboard Layer */}
+                                <div
+                                    data-nexus-canvas-stable="true"
+                                    className={`absolute inset-0 p-6 transition-opacity duration-300 ${activeTab === 'whiteboard' ? 'opacity-100 z-[10] pointer-events-auto' : 'opacity-0 z-0 pointer-events-none'}`}
+                                >
+                                    <div className="h-full w-full rounded-2xl overflow-hidden border border-white/10 shadow-4xl bg-black/80 ring-1 ring-white/5 relative">
+                                        {/* @ts-ignore */}
+                                        <Excalidraw theme="dark" onChange={handleExcalidrawChange} excalidrawAPI={(api) => setExcalidrawAPI(api)} />
+                                        {/* Diagnostic Marker */}
+                                        <div className="absolute top-2 left-2 text-[6px] font-black text-indigo-500/50 uppercase tracking-widest z-50 pointer-events-none">Layer_Active</div>
                                     </div>
                                 </div>
-                                <div className="relative aspect-video rounded-2xl bg-black/60 border border-white/5 flex items-center justify-center overflow-hidden">
-                                    <UsersIcon className="w-10 h-10 text-white opacity-5" />
-                                    <div className="absolute bottom-3 left-3 px-2 py-1 bg-black/40 backdrop-blur-md rounded-lg text-[8px] font-black text-white">{user?.email?.split('@')[0]} (YOU)</div>
-                                </div>
-                                {isInterviewer && (
-                                    <div className="mt-auto space-y-4">
-                                        <textarea value={interviewerNotes} onChange={(e) => setInterviewerNotes(e.target.value)} placeholder="Private feedback..." className="w-full h-32 bg-black/40 border border-white/5 rounded-2xl p-4 text-xs text-gray-300 resize-none focus:outline-none focus:border-indigo-500/50" />
-                                        <button onClick={() => setShowProblemSelector(true)} className="w-full h-12 rounded-2xl bg-gradient-to-r from-indigo-500 to-violet-500 text-white text-[10px] font-black uppercase tracking-widest shadow-xl shadow-indigo-500/20 active:scale-95 transition-all">Push_Data_Packet</button>
-                                    </div>
-                                )}
-                            </div>
-                        </Panel>
-                    </Group>
-                </div>
-            </div>
-
-            {/* Floating Media Hub */}
-            <AnimatePresence>
-                {isCallActive && !isMediaDockMinimized && (
-                    <motion.div drag dragMomentum={false} initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.8, opacity: 0 }} className="fixed bottom-32 right-8 w-80 z-50">
-                        <div className="bg-[#0f0f0f]/80 backdrop-blur-3xl border border-white/10 rounded-[2.5rem] shadow-2xl overflow-hidden ring-1 ring-white/10">
-                            <div className="h-10 px-6 flex items-center justify-between bg-white/5 cursor-move">
-                                <span className="text-[8px] font-black text-white uppercase tracking-widest">Live_Signal</span>
-                                <button onClick={() => setIsMediaDockMinimized(true)} className="text-[8px] font-black text-gray-500 hover:text-white">[Minimize]</button>
-                            </div>
-                            <div className="aspect-video bg-black/40 relative">
-                                <div ref={jitsiContainerRef} className="absolute inset-0" />
-                                {!jitsiApi && <div className="absolute inset-0 flex items-center justify-center"><VideoOff className="w-8 h-8 text-white/10" /></div>}
                             </div>
                         </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+                    </Panel>
 
-            {/* Bottom Control Dock */}
-            <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-40">
-                <motion.div initial={{ y: 100, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="px-4 py-2 bg-black/40 backdrop-blur-3xl border border-white/10 rounded-[2rem] flex items-center gap-2 ring-1 ring-white/10 shadow-2xl">
-                    <button onClick={toggleAudio} className={`p-4 rounded-xl transition-all ${isMuted ? 'bg-red-500 text-white' : 'hover:bg-white/10 text-gray-400'}`}>{isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}</button>
-                    <button onClick={toggleVideo} className={`p-4 rounded-xl transition-all ${isVideoOff ? 'bg-red-500 text-white' : 'hover:bg-white/10 text-gray-400'}`}>{isVideoOff ? <VideoOff className="w-5 h-5" /> : <Video className="w-5 h-5" />}</button>
-                    <div className="w-[1px] h-6 bg-white/10 mx-2" />
-                    <button className="p-4 rounded-xl hover:bg-white/10 text-gray-400"><ScreenShare className="w-5 h-5" /></button>
-                    <div className="w-[1px] h-6 bg-white/10 mx-2" />
-                    <button onClick={() => navigate('/')} className="px-6 py-4 rounded-xl bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500 hover:text-white transition-all text-[10px] font-black uppercase tracking-widest">Terminate</button>
-                </motion.div>
-            </div>
+                    <Separator className="w-[1px] bg-white/5 hover:bg-indigo-500/30 transition-colors cursor-col-resize" />
 
-            {/* Problem Selector Modal */}
-            <AnimatePresence>
-                {showProblemSelector && (
-                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-8 bg-black/80 backdrop-blur-xl">
-                        <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="relative w-full max-w-2xl bg-[#0a0a0a] border border-white/5 rounded-[3rem] overflow-hidden shadow-2xl flex flex-col max-h-[80vh]">
-                            <div className="p-10 border-b border-white/5">
-                                <h3 className="text-3xl font-black text-white mb-6 italic">Protocol Buffer</h3>
-                                <div className="relative">
-                                    <Search className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600" />
-                                    <input type="text" placeholder="Scan records..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-2xl py-4 pl-14 pr-6 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 font-bold" />
+                    {/* Main Workspace (Now Right) */}
+                    <Panel defaultSize={72} minSize={60} className="relative">
+                        <div ref={workspaceRef} className="h-full flex flex-col bg-black/20 backdrop-blur-sm">
+                            <div className="h-12 flex items-center justify-between px-6 border-b border-white/5 bg-white/[0.01]">
+                                <div className="flex items-center gap-3">
+                                    <Activity className="w-3.5 h-3.5 text-indigo-400" />
+                                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-white">Primary_Workspace.exe</span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-1 bg-white/[0.03] border border-white/5 rounded-xl p-1 mr-2">
+                                        <button onClick={toggleAudio} title={isMuted ? "Power On Mic" : "Mute Signal"} className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${isMuted ? 'bg-red-500/20 text-red-500 border border-red-500/30' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}>
+                                            {isMuted ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
+                                        </button>
+                                        <button onClick={toggleVideo} title={isVideoOff ? "Initialize Visual" : "Disable Feed"} className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${isVideoOff ? 'bg-red-500/20 text-red-500 border border-red-500/30' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}>
+                                            {isVideoOff ? <VideoOff className="w-3.5 h-3.5" /> : <Video className="w-3.5 h-3.5" />}
+                                        </button>
+                                        <button
+                                            onClick={() => setIsVideoMaximized(!isVideoMaximized)}
+                                            title={isVideoMaximized ? "Exit Cinema Mode" : "Maximize Visual Focus"}
+                                            className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${isVideoMaximized ? 'bg-indigo-500 text-white shadow-[0_0_15px_rgba(99,102,241,0.4)]' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}
+                                        >
+                                            <ScreenShare className="w-3.5 h-3.5" />
+                                        </button>
+                                    </div>
+
+                                    <button onClick={handleRun} disabled={isRunning} className="flex items-center gap-2 px-4 py-1.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[9px] font-black uppercase tracking-widest hover:bg-indigo-500 hover:text-white transition-all group">
+                                        <FileText className="w-3 h-3 group-hover:scale-110 transition-transform" />
+                                        {isRunning ? 'Busy...' : 'Execute_Phase'}
+                                    </button>
+
+                                    <div className="w-[1px] h-4 bg-white/10 mx-1" />
+
+                                    <button onClick={() => navigate('/')} className="px-4 py-1.5 rounded-xl bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500 hover:text-white transition-all text-[9px] font-black uppercase tracking-widest">Terminate</button>
                                 </div>
                             </div>
-                            <div className="flex-1 overflow-y-auto p-6 space-y-2 custom-scrollbar">
+                            <div className="flex-1 overflow-hidden">
+                                <CollaborativeEditor
+                                    roomId={roomId || ''}
+                                    userName={user?.email || 'Anonymous'}
+                                    userColor="#8b5cf6"
+                                    language="javascript"
+                                    onLanguageChange={() => { }}
+                                    onChange={(v) => setCode(v)}
+                                />
+                            </div>
+
+                            {/* Collapsible Tactical Terminal */}
+                            <div className="h-40 border-t border-white/5 bg-[#050505]/80 backdrop-blur-xl p-5 font-mono text-[10px] overflow-auto custom-scrollbar">
+                                <div className="flex items-center gap-2 mb-3 opacity-30">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-gray-500" />
+                                    <span className="uppercase tracking-[0.2em]">System_Logs_Initialized</span>
+                                </div>
+                                {terminalOutput.map((log, i) => (
+                                    <div key={i} className={`mb-1.5 flex gap-3 ${log.type === 'error' ? 'text-red-400' : log.type === 'system' ? 'text-indigo-400' : 'text-emerald-400'}`}>
+                                        <span className="opacity-30 shrink-0">[{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}]</span>
+                                        <span>{log.message}</span>
+                                    </div>
+                                ))}
+                                <div ref={terminalEndRef} />
+                            </div>
+                        </div>
+                    </Panel>
+                </Group>
+            </main>
+
+
+
+            {/* Problem Selector Overlay */}
+            <AnimatePresence>
+                {showProblemSelector && (
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-12 bg-black/90 backdrop-blur-2xl">
+                        <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }} className="relative w-full max-w-2xl bg-[#080808] border border-white/5 rounded-[4rem] overflow-hidden shadow-4xl flex flex-col max-h-[75vh]">
+                            <div className="p-12 border-b border-white/5 bg-white/[0.01]">
+                                <h3 className="text-4xl font-black text-white mb-8 italic tracking-tighter">PROTOCOL_REGISTRY</h3>
+                                <div className="relative group">
+                                    <div className="absolute inset-0 bg-indigo-500/20 blur-xl opacity-0 group-focus-within:opacity-100 transition-opacity" />
+                                    <Search className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-600 z-10" />
+                                    <input type="text" placeholder="Scan identification codes..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-3xl py-5 pl-14 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 font-bold placeholder:text-gray-700 relative z-10 backdrop-blur-xl" />
+                                </div>
+                            </div>
+                            <div className="flex-1 overflow-y-auto p-8 space-y-3 custom-scrollbar">
                                 {filteredProblems.map((p) => (
-                                    <button key={p.id} onClick={() => handlePushProblem(p)} className="w-full flex items-center justify-between p-6 rounded-3xl hover:bg-white/5 group transition-all">
-                                        <div className="text-left"><div className="font-black text-white text-lg">{p.title}</div><div className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mt-1 italic">{p.difficulty}</div></div>
-                                        <div className="px-5 py-2 rounded-xl bg-white/5 border border-white/5 text-[9px] font-black uppercase group-hover:bg-indigo-500 group-hover:text-white transition-all">Deploy</div>
+                                    <button key={p.id} onClick={() => handlePushProblem(p)} className="w-full flex items-center justify-between p-7 rounded-[2.5rem] hover:bg-white/5 group transition-all border border-transparent hover:border-white/5">
+                                        <div className="text-left">
+                                            <div className="font-black text-white text-xl tracking-tight italic group-hover:text-indigo-400 transition-colors uppercase">{p.title}</div>
+                                            <div className="text-[9px] font-black text-gray-600 uppercase tracking-widest mt-1.5 flex items-center gap-2">
+                                                <span className="text-indigo-500/50">LEVEL:</span> {p.difficulty}
+                                                <span className="mx-1">•</span>
+                                                <span className="text-indigo-500/50">TAGS:</span> {p.category}
+                                            </div>
+                                        </div>
+                                        <div className="px-6 py-3 rounded-2xl bg-white/5 border border-white/5 text-[10px] font-black uppercase tracking-[0.2em] group-hover:bg-indigo-500 group-hover:text-white group-hover:shadow-lg group-hover:shadow-indigo-500/30 transition-all">Initialize</div>
                                     </button>
                                 ))}
                             </div>
-                            <button onClick={() => setShowProblemSelector(false)} className="absolute top-6 right-6 text-gray-500 hover:text-white">✕</button>
+                            <button onClick={() => setShowProblemSelector(false)} className="absolute top-8 right-12 text-gray-600 hover:text-white transition-colors text-xs font-black uppercase tracking-widest">Close [Esc]</button>
                         </motion.div>
                     </div>
                 )}
             </AnimatePresence>
-        </div>
+            {/* Floating Resizable Video Overlay */}
+            <motion.div
+                drag={!isVideoMaximized}
+                dragControls={dragControls}
+                dragListener={false}
+                dragMomentum={false}
+                dragElastic={0}
+                animate={isVideoMaximized ? {
+                    top: (workspaceRef.current?.getBoundingClientRect().top ?? 80) + 48,
+                    left: workspaceRef.current?.getBoundingClientRect().left ?? '28%',
+                    width: workspaceRef.current?.offsetWidth ?? '72%',
+                    height: (workspaceRef.current?.offsetHeight ?? 0) - 48,
+                    x: 0,
+                    y: 0,
+                    borderRadius: '0px',
+                    zIndex: 40
+                } : {
+                    top: 0,
+                    left: 0,
+                    x: videoPos.x,
+                    y: videoPos.y,
+                    width: videoSize.width,
+                    height: videoSize.height,
+                    borderRadius: '24px',
+                    zIndex: 1000
+                }}
+                transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+                onDragEnd={(_, info) => setVideoPos({ x: info.point.x, y: info.point.y })}
+                style={{
+                    position: 'fixed' as const,
+                    cursor: isVideoMaximized ? 'default' : (isResizing ? 'nwse-resize' : 'grab')
+                }}
+                className="bg-[#080808] border border-white/10 shadow-4xl overflow-hidden group ring-1 ring-white/5"
+            >
+                {/* Drag Handle Bar - Only visible when NOT maximized */}
+                {!isVideoMaximized && (
+                    <div
+                        onPointerDown={(e) => dragControls.start(e)}
+                        className="drag-handle absolute top-0 left-0 right-0 h-10 z-30 cursor-grab active:cursor-grabbing flex items-center justify-center bg-gradient-to-b from-black/80 to-transparent opacity-100 transition-opacity"
+                    >
+                        <div className="w-12 h-1 bg-white/40 rounded-full" />
+                    </div>
+                )}
+
+                <div ref={setJitsiContainer} className="absolute inset-0 z-10" />
+
+                {/* Visual Placemarker */}
+                <div className="absolute inset-0 flex items-center justify-center z-0 bg-black/40 backdrop-blur-md">
+                    <div className="flex flex-col items-center gap-4 opacity-20 group-hover:opacity-40 transition-opacity">
+                        <UsersIcon className="w-12 h-12 text-white animate-pulse" />
+                        <span className="text-[8px] font-black text-white uppercase tracking-[0.4em]">Integrated_Visual_Relay</span>
+                    </div>
+                </div>
+
+                {/* Resize Handle */}
+                <div
+                    onMouseDown={(e) => {
+                        e.stopPropagation();
+                        setIsResizing(true);
+                        const startX = e.clientX;
+                        const startY = e.clientY;
+                        const startWidth = parseInt(String(videoSize.width).replace('vw', '')) * window.innerWidth / 100;
+                        const startHeight = parseInt(String(videoSize.height).replace('vh', '')) * window.innerHeight / 100;
+
+                        const onMouseMove = (moveEvent: MouseEvent) => {
+                            const newWidth = startWidth + (moveEvent.clientX - startX);
+                            const newHeight = startHeight + (moveEvent.clientY - startY);
+                            setVideoSize({
+                                width: `${(newWidth / window.innerWidth) * 100}vw`,
+                                height: `${(newHeight / window.innerHeight) * 100}vh`
+                            });
+                        };
+
+                        const onMouseUp = () => {
+                            setIsResizing(false);
+                            document.removeEventListener('mousemove', onMouseMove);
+                            document.removeEventListener('mouseup', onMouseUp);
+                        };
+
+                        document.addEventListener('mousemove', onMouseMove);
+                        document.addEventListener('mouseup', onMouseUp);
+                    }}
+                    className="absolute bottom-0 right-0 w-8 h-8 cursor-nwse-resize z-50 flex items-center justify-center group/handle"
+                >
+                    <div className="w-1 h-1 bg-white/20 rounded-full mb-1 mr-1 group-hover/handle:bg-indigo-500 scale-1" />
+                    <div className="w-1 h-1 bg-white/20 rounded-full mb-1 mr-1 group-hover/handle:bg-indigo-500" />
+                </div>
+
+                {/* Info Bar */}
+                <div className="absolute top-4 left-4 z-20 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="px-3 py-1.5 bg-black/60 backdrop-blur-xl border border-white/10 rounded-xl text-[9px] font-black text-white/80 uppercase tracking-widest flex items-center gap-2">
+                        <div className="w-1 h-1 rounded-full bg-indigo-500 animate-pulse" />
+                        Live_Transmission: {user?.email?.split('@')[0]}
+                    </div>
+                </div>
+            </motion.div>
+        </div >
     );
 }
