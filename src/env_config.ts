@@ -8,5 +8,6 @@ export const ENV_CONFIG = {
   VITE_GROK_API_KEY: import.meta.env.VITE_GROK_API_KEY || "",
   VITE_GROQ_API_KEY: import.meta.env.VITE_GROQ_API_KEY || "",
   VITE_INTERVIEW_API_KEY: import.meta.env.VITE_INTERVIEW_API_KEY || "",
-  VITE_SARVAM_PORT: import.meta.env.VITE_SARVAM_PORT || "5000"
+  VITE_SARVAM_PORT: import.meta.env.VITE_SARVAM_PORT || "5000",
+  VITE_JITSI_DOMAIN: import.meta.env.VITE_JITSI_DOMAIN || "meet.jit.si"
 };

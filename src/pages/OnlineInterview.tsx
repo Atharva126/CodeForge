@@ -113,7 +113,20 @@ export default function OnlineInterview() {
     const [isCallActive, setIsCallActive] = useState(true);
     const [isRunning, setIsRunning] = useState(false);
     const [code, setCode] = useState('');
-    const [isJitsiLoaded, setIsJitsiLoaded] = useState(!!(window as any).JitsiMeetExternalAPI);
+    const [isJitsiLoaded, setIsJitsiLoaded] = useState(() => {
+        return typeof (window as any).JitsiMeetExternalAPI === 'function';
+    });
+    const JITSI_SERVERS = [
+        'meet.ffmuc.net',
+        'jitsi.belnet.be',
+        'meet.jit.si',
+        'meet.element.io'
+    ];
+    const [currentServerIndex, setCurrentServerIndex] = useState(0);
+    const userRequestedEndRef = useRef(false);
+    const reconnectAttemptRef = useRef(0);
+    const [initRetryCount, setInitRetryCount] = useState(0);
+    const MAX_RECONNECT_ATTEMPTS = 50;
 
     const [videoSize, setVideoSize] = useState({ width: '35vw', height: '45vh' });
     const [videoPos, setVideoPos] = useState({ x: window.innerWidth * 0.62, y: window.innerHeight * 0.48 });
@@ -168,12 +181,15 @@ export default function OnlineInterview() {
         }
     }, [jitsiApi, isVideoOff]);
 
-    // 1. Simplified Jitsi Loader: Leverage index.html script or inject if missing
+    // 1. Jitsi API Availability Validator
     useEffect(() => {
         const checkJitsi = () => {
-            if ((window as any).JitsiMeetExternalAPI) {
-                console.log('🎬 Jitsi: API detected');
-                if (!isJitsiLoaded) setIsJitsiLoaded(true);
+            const api = (window as any).JitsiMeetExternalAPI;
+            if (typeof api === 'function') {
+                if (!isJitsiLoaded) {
+                    console.log('🎬 Jitsi: Global constructor ready');
+                    setIsJitsiLoaded(true);
+                }
                 return true;
             }
             return false;
@@ -183,26 +199,40 @@ export default function OnlineInterview() {
 
         const interval = setInterval(() => {
             if (checkJitsi()) clearInterval(interval);
-        }, 1000);
+        }, 500);
 
         return () => clearInterval(interval);
     }, [isJitsiLoaded]);
 
-    // 2. Jitsi Initialization Logic
-    useEffect(() => {
-        // Critical: Only initialize if everything is ready
-        if (!roomId || !user?.email || !isCallActive || !jitsiContainer || jitsiApi || !isJitsiLoaded) {
-            return;
+    // Helper: Create a new Jitsi conference instance
+    const initJitsi = useCallback(() => {
+        if (!jitsiContainer || !user?.email || !isCallActive || !isJitsiLoaded) {
+            console.warn('🎬 Jitsi: Cannot init - missing requirements', { container: !!jitsiContainer, user: !!user?.email, active: isCallActive, loaded: isJitsiLoaded });
+            return null;
         }
 
+        const jitsiDomain = JITSI_SERVERS[currentServerIndex];
         const userIdentifier = user.email;
-        addTerminalMessage({ type: 'system', message: '🛠️ Jitsi: Spawning Integrated Video Link...' });
-        console.log('🎬 Jitsi: Spawning instance...', { roomId, user: userIdentifier, container: !!jitsiContainer });
+        const cleanRoomId = (roomId || 'default').replace(/[^a-zA-Z0-9]/g, '-');
+        // Use a much more unique prefix to avoid room collisions and 'membersOnly' issues on public servers
+        const roomPrefix = 'CodeForge_v3_Secure_';
+        const roomName = `${roomPrefix}${cleanRoomId}_${ENV_CONFIG.VITE_COLLAB_SERVER_URL ? 'Prod' : 'Dev'}`;
+
+        // Clear any existing iframes in the container before spawning a new one
+        if (jitsiContainer) {
+            while (jitsiContainer.firstChild) {
+                jitsiContainer.removeChild(jitsiContainer.firstChild);
+            }
+        }
+
+        const isReconnect = reconnectAttemptRef.current > 0;
+        const label = isReconnect ? `Reconnecting (attempt ${reconnectAttemptRef.current})...` : (initRetryCount > 0 ? `Retrying (attempt ${initRetryCount})...` : 'Spawning Integrated Video Link...');
+        addTerminalMessage({ type: 'system', message: `🛠️ Jitsi: ${label}` });
+        console.log('🎬 Jitsi: Spawning instance...', { roomId, roomName, user: userIdentifier, container: !!jitsiContainer, domain: jitsiDomain, retryCount: initRetryCount });
 
         try {
-            const domain = 'meet.jit.si';
             const options = {
-                roomName: `codeforge-${roomId}-${ENV_CONFIG.VITE_COLLAB_SERVER_URL ? 'prod' : 'dev'}`,
+                roomName: roomName,
                 width: '100%',
                 height: '100%',
                 parentNode: jitsiContainer,
@@ -213,8 +243,21 @@ export default function OnlineInterview() {
                     startWithAudioMuted: false,
                     startWithVideoMuted: false,
                     prejoinPageEnabled: false,
+                    prejoinConfig: { enabled: false },
                     disableDeepLinking: true,
-                    p2p: { enabled: true }
+                    p2p: { enabled: false }, // Disable P2P to force media through the bridge (more stable for camera access)
+                    enableWelcomePage: false,
+                    enableClosePage: false,
+                    // Security & Access Overrides to prevent 'membersOnly' errors
+                    enableLobby: false,
+                    lobby: { enabled: false },
+                    disableLobby: true,
+                    enableInsecureRoomNameWarning: false,
+                    doNotStoreRoom: true,
+                    defaultRole: 'moderator', // Attempt to join with moderator privileges to bypass locks
+                    remoteVideoMenu: {
+                        disableKick: false
+                    }
                 },
                 interfaceConfigOverwrite: {
                     TOOLBAR_BUTTONS: [
@@ -222,38 +265,127 @@ export default function OnlineInterview() {
                     ],
                     SETTINGS_SECTIONS: ['devices', 'language', 'profile'],
                     SHOW_PROMOTIONAL_CLOSE_PAGE: false,
-                    RECENT_LIST_ENABLED: false
+                    RECENT_LIST_ENABLED: false,
+                    DISABLE_JOIN_LEAVE_NOTIFICATIONS: true
                 }
             };
 
-            const api = new (window as any).JitsiMeetExternalAPI(domain, options);
-            setJitsiApi(api);
+            const JitsiConstructor = (window as any).JitsiMeetExternalAPI;
+            console.log(`🎬 Jitsi: Constructor check - type: ${typeof JitsiConstructor}`);
+            if (typeof JitsiConstructor !== 'function') {
+                throw new TypeError(`window.JitsiMeetExternalAPI is not a constructor (type: ${typeof JitsiConstructor})`);
+            }
+
+            const api = new JitsiConstructor(jitsiDomain, options);
 
             api.addEventListeners({
-                readyToClose: () => setIsCallActive(false),
+                readyToClose: () => {
+                    // User explicitly pressed hangup — do NOT reconnect
+                    userRequestedEndRef.current = true;
+                    setIsCallActive(false);
+                },
                 videoConferenceJoined: () => {
                     console.log('🎬 Jitsi: Joined successfully');
+                    reconnectAttemptRef.current = 0; // Reset reconnect counter on successful join
                     addTerminalMessage({ type: 'system', message: '🤝 Jitsi: Tactical Video Link Operational.' });
                 },
                 participantJoined: (participant: any) => {
                     addTerminalMessage({ type: 'system', message: `👤 Jitsi: Remote Signal Detected - ${participant.displayName}` });
                 },
+                cameraError: (error: any) => {
+                    console.error('🎬 Jitsi: Camera error:', error);
+                    addTerminalMessage({ type: 'error', message: `🚫 Jitsi: Camera Access Fault - ${error.type || 'Unknown reason'}` });
+                },
+                micError: (error: any) => {
+                    console.error('🎬 Jitsi: Mic error:', error);
+                    addTerminalMessage({ type: 'error', message: `🚫 Jitsi: Microphone Access Fault - ${error.type || 'Unknown reason'}` });
+                },
+                permissionReceived: (data: any) => {
+                    console.log('🎬 Jitsi: Permission granted', data);
+                    addTerminalMessage({ type: 'system', message: `✅ Jitsi: Media authorization received - ${data.kind}` });
+                },
                 videoConferenceLeft: () => {
                     console.log('🎬 Jitsi: Conference left');
-                    setJitsiApi(null);
+
+                    // Auto-reconnect if the user didn't request to end the call
+                    if (!userRequestedEndRef.current && isCallActive && reconnectAttemptRef.current < MAX_RECONNECT_ATTEMPTS) {
+                        reconnectAttemptRef.current++;
+                        console.log(`🎬 Jitsi: Auto-reconnecting in 2s (attempt ${reconnectAttemptRef.current})...`);
+                        addTerminalMessage({ type: 'system', message: `🔄 Jitsi: Connection interrupted — auto-reconnecting (${reconnectAttemptRef.current}/${MAX_RECONNECT_ATTEMPTS})...` });
+
+                        // Dispose old instance and create a new one
+                        try { api.dispose(); } catch (e) { /* ignore */ }
+                        setJitsiApi(null);
+
+                        setTimeout(() => {
+                            const newApi = initJitsi();
+                            if (newApi) setJitsiApi(newApi);
+                        }, 2000);
+                    } else {
+                        setJitsiApi(null);
+                    }
                 }
             });
 
-            return () => {
-                console.log('🎬 Jitsi: Disposing instance');
-                api.dispose();
-                setJitsiApi(null);
-            };
+            return api;
         } catch (err) {
             console.error('🎬 Jitsi: Fatal initialization error:', err);
-            addTerminalMessage({ type: 'error', message: '🚫 Jitsi: Integrated Link Failed to Mount.' });
+            addTerminalMessage({ type: 'error', message: `🚫 Jitsi: Integrated Link Failed to Mount. ${err instanceof Error ? err.message : ''}` });
+            return null;
         }
-    }, [roomId, user?.email, isCallActive, isJitsiLoaded, jitsiContainer, addTerminalMessage]); // Removed jitsiApi here
+    }, [roomId, user?.email, isCallActive, isJitsiLoaded, jitsiContainer, addTerminalMessage, initRetryCount]);
+
+    const handleManualRetry = useCallback(() => {
+        addTerminalMessage({ type: 'system', message: '🔄 Jitsi: Manual initialization trigger received.' });
+        if (jitsiApi) {
+            try { jitsiApi.dispose(); } catch (e) { /* ignore */ }
+            setJitsiApi(null);
+        }
+        setInitRetryCount(prev => prev + 1);
+    }, [jitsiApi, addTerminalMessage]);
+
+    const handleServerSwitch = useCallback(() => {
+        const nextIndex = (currentServerIndex + 1) % JITSI_SERVERS.length;
+        const nextServer = JITSI_SERVERS[nextIndex];
+        addTerminalMessage({ type: 'system', message: `📡 Jitsi: Switching tactical uplink to ${nextServer}...` });
+
+        if (jitsiApi) {
+            try { jitsiApi.dispose(); } catch (e) { /* ignore */ }
+            setJitsiApi(null);
+        }
+
+        setCurrentServerIndex(nextIndex);
+        setInitRetryCount(0); // Reset retry count for the new server
+    }, [currentServerIndex, jitsiApi, addTerminalMessage, JITSI_SERVERS]);
+
+    // 2. Jitsi Initialization Logic
+    useEffect(() => {
+        if (!roomId || !user?.email || !isCallActive || !jitsiContainer || jitsiApi || !isJitsiLoaded) {
+            return;
+        }
+
+        userRequestedEndRef.current = false;
+        reconnectAttemptRef.current = 0;
+
+        const api = initJitsi();
+        if (api) {
+            setJitsiApi(api);
+        } else {
+            console.warn('🎬 Jitsi: Initial spawn failed, scheduling retry in 3s...');
+            const timer = setTimeout(() => {
+                setInitRetryCount(prev => prev + 1);
+            }, 3000);
+            return () => clearTimeout(timer);
+        }
+
+        return () => {
+            if (api) {
+                console.log('🎬 Jitsi: Disposing instance');
+                try { api.dispose(); } catch (e) { /* ignore */ }
+                setJitsiApi(null);
+            }
+        };
+    }, [roomId, user?.email, isCallActive, isJitsiLoaded, jitsiContainer, initJitsi, initRetryCount]);
 
     const [isInterviewer, setIsInterviewer] = useState(false);
     const isInterviewerRef = useRef(false);
@@ -679,10 +811,24 @@ export default function OnlineInterview() {
                             </div>
 
                             {/* Collapsible Tactical Terminal */}
-                            <div className="h-40 border-t border-white/5 bg-[#050505]/80 backdrop-blur-xl p-5 font-mono text-[10px] overflow-auto custom-scrollbar">
-                                <div className="flex items-center gap-2 mb-3 opacity-30">
-                                    <div className="w-1.5 h-1.5 rounded-full bg-gray-500" />
-                                    <span className="uppercase tracking-[0.2em]">System_Logs_Initialized</span>
+                            <div className="h-40 border-t border-white/5 bg-[#050505]/80 backdrop-blur-xl p-5 font-mono text-[10px] overflow-auto custom-scrollbar relative">
+                                <div className="flex items-center justify-between mb-3 opacity-30">
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            onClick={handleServerSwitch}
+                                            className="px-2 py-0.5 rounded-md border border-indigo-500/30 bg-indigo-500/5 hover:bg-indigo-500/10 transition-colors text-[7px] font-black uppercase tracking-widest flex items-center gap-1"
+                                            title="Switch Jitsi Server Provider"
+                                        >
+                                            <span className="w-1 h-1 rounded-full bg-indigo-400 animate-pulse" />
+                                            Source: {JITSI_SERVERS[currentServerIndex]}
+                                        </button>
+                                        <button
+                                            onClick={handleManualRetry}
+                                            className="px-2 py-0.5 rounded-md border border-white/10 hover:bg-white/5 transition-colors text-[7px] font-black uppercase tracking-widest"
+                                        >
+                                            Force_Initialize
+                                        </button>
+                                    </div>
                                 </div>
                                 {terminalOutput.map((log, i) => (
                                     <div key={i} className={`mb-1.5 flex gap-3 ${log.type === 'error' ? 'text-red-400' : log.type === 'system' ? 'text-indigo-400' : 'text-emerald-400'}`}>
